@@ -1,0 +1,76 @@
+:root {
+  --font-display: 'Source Serif 4 Variable', 'Iowan Old Style', Georgia, serif;
+  --font-body: 'Inter Variable', 'Segoe UI', system-ui, sans-serif;
+
+  --paper: #ececef;
+  --paper-deep: #ececef;
+  --surface: #ffffff;
+  --surface-muted: #f6f6f8;
+
+  --ink-950: #050507;
+  --ink-900: #0c0c12;
+  --ink-800: #1a1a22;
+  --ink-700: #2a2a33;
+  --ink-600: #44444f;
+
+  --text: #0c0c12;
+  --text-muted: #5d5d69;
+  --text-faint: #8f8f9b;
+
+  --line: #e7e7eb;
+  --line-strong: #d3d3da;
+
+  --accent-900: #0c0c12;
+  --accent-700: #0c0c12;
+  --accent-600: #2a2a33;
+  --accent-500: #3d3d47;
+  --accent-300: #b9b9c2;
+  --accent-100: #e9e9ed;
+  --accent-50: #f4f4f7;
+
+  --lime-500: #ffffff;
+  --lime-200: #e3e3e8;
+  --lime-100: #ececf0;
+
+  --yellow-400: #dcdce2;
+  --yellow-200: #e9e9ed;
+  --yellow-100: #f2f2f5;
+
+  --green-700: #0c0c12;
+  --green-600: #0c0c12;
+  --green-100: #e9e9ed;
+
+  --amber-700: #3d3d47;
+  --amber-500: #7c7c89;
+  --amber-100: #ececf0;
+
+  --coral-700: #3d3d47;
+  --coral-600: #9c9ca8;
+  --coral-500: #b9b9c2;
+  --coral-100: #ececf0;
+
+  --danger-700: #0c0c12;
+  --danger-100: #ffffff;
+
+  --info-700: #0c0c12;
+  --info-100: #e9e9ed;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 12px;
+  --radius-pill: 8px;
+
+  --gap: 12px;
+
+  --shadow-sm: 0 1px 2px rgb(12 12 18 / 5%);
+  --shadow-card: 0 1px 2px rgb(12 12 18 / 4%), 0 4px 14px -8px rgb(12 12 18 / 10%);
+  --shadow-md: 0 1px 2px rgb(12 12 18 / 5%), 0 8px 20px -10px rgb(12 12 18 / 18%);
+  --shadow-lg: 0 2px 4px rgb(12 12 18 / 8%), 0 24px 48px -20px rgb(12 12 18 / 30%);
+
+  --sidebar-width: 228px;
+  --topbar-height: 48px;
+  --content-max: 1560px;
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
