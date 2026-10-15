@@ -37,15 +37,33 @@ class JdForScoring(BaseModel):
     weights: Weights = Field(default_factory=Weights)
 
 
+class RequirementCheck(BaseModel):
+    requirement: str
+    matched: bool
+
+
+class AlternativeMatch(BaseModel):
+    name: str
+    relevance: int
+
+    @field_validator("relevance")
+    @classmethod
+    def clamp_relevance(cls, value: int) -> int:
+        return max(0, min(100, value))
+
+
 class BenchmarkLlmResult(BaseModel):
     key: BenchmarkKey
-    score: int
+    checks: list[RequirementCheck]
+    alternatives: list[AlternativeMatch]
+    required_months: int
+    available_months: int
     reasoning: str
 
-    @field_validator("score")
+    @field_validator("required_months", "available_months")
     @classmethod
-    def clamp_score(cls, value: int) -> int:
-        return max(0, min(100, value))
+    def keep_months_positive(cls, value: int) -> int:
+        return max(0, value)
 
 
 class CvScoringLlmOutput(BaseModel):

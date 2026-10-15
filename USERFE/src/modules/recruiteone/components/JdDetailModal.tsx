@@ -5,14 +5,17 @@ import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { Modal } from '@/components/ui/Modal'
 import { Tabs } from '@/components/ui/Tabs'
 import { cleanBuckets } from '../data/buckets'
-import type { JobDescription } from '../types'
+import { usableForJd } from '../services/approvalMath'
+import type { HiringApproval, JobDescription, Vacancy } from '../types'
 import { jdStateOf, useStore } from '../state/RecruiteOneStore'
+import { ApprovalLink } from './approval/ApprovalLink'
+import { ApprovalPicker } from './approval/ApprovalPicker'
 import { BucketEditor } from './BucketEditor'
 import { JdMetaFields } from './JdMetaFields'
 import { JdStatusBadge } from './StatusBadges'
 import { WeightEditor } from './WeightEditor'
 
-type Tab = 'requirements' | 'weights'
+type Tab = 'requirements' | 'weights' | 'approval'
 
 interface JdDetailModalProps {
   jd: JobDescription | null
@@ -21,8 +24,9 @@ interface JdDetailModalProps {
 }
 
 function JdDetailForm({ jd, onClose, onProceed }: { jd: JobDescription; onClose: () => void; onProceed: (jd: JobDescription) => void }) {
-  const { updateJd, deleteJd, restoreJd, vacancies } = useStore()
+  const { updateJd, deleteJd, restoreJd, vacancies, approvals } = useStore()
   const [tab, setTab] = useState<Tab>('requirements')
+  const [approvalId, setApprovalId] = useState(jd.approval_id ?? '')
   const [name, setName] = useState(jd.name)
   const [role, setRole] = useState(jd.role)
   const [sector, setSector] = useState(jd.sector)
@@ -33,8 +37,14 @@ function JdDetailForm({ jd, onClose, onProceed }: { jd: JobDescription; onClose:
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   function currentValues() {
-    return { name: name.trim(), role: role.trim(), sector: sector.trim(), level, buckets: cleanBuckets(buckets), weights }
+    return { name: name.trim(), role: role.trim(), sector: sector.trim(), level, buckets: cleanBuckets(buckets), weights, approval_id: approvalId === '' ? null : approvalId }
   }
+
+  const linkable = approvals.filter((approval) => approval.id === approvalId || usableForJd(approval, vacancies))
+  const vacancyApprovals = vacancies
+    .filter((vacancy) => vacancy.jd_id === jd.id && vacancy.approval_id)
+    .map((vacancy) => ({ vacancy, approval: approvals.find((approval) => approval.id === vacancy.approval_id) }))
+    .filter((entry): entry is { vacancy: Vacancy; approval: HiringApproval } => entry.approval !== undefined)
 
   function save() {
     updateJd(jd.id, currentValues())
@@ -103,6 +113,7 @@ function JdDetailForm({ jd, onClose, onProceed }: { jd: JobDescription; onClose:
         options={[
           { value: 'requirements', label: 'Requirements' },
           { value: 'weights', label: 'Weights' },
+          { value: 'approval', label: 'Approval' },
         ]}
       >
         {tab === 'requirements' ? (
@@ -136,7 +147,7 @@ function JdDetailForm({ jd, onClose, onProceed }: { jd: JobDescription; onClose:
               <pre>{jd.raw_text}</pre>
             </details>
           </div>
-        ) : (
+        ) : tab === 'weights' ? (
           <WeightEditor
             weights={weights}
             buckets={buckets}
@@ -145,6 +156,43 @@ function JdDetailForm({ jd, onClose, onProceed }: { jd: JobDescription; onClose:
               setSaved(false)
             }}
           />
+        ) : (
+          <div className="form-stack">
+            <div className="approval-field">
+              <p className="mini-heading">Hiring approval for this JD</p>
+              <p className="approval-field__required">Optional. Link the hiring request this JD was written for, then press Save.</p>
+              <ApprovalPicker
+                label="Hiring approval for this JD"
+                approvals={linkable}
+                value={approvalId}
+                allowNone
+                onChange={(next) => {
+                  setApprovalId(next)
+                  setSaved(false)
+                }}
+                emptyMessage="There is no pending or approved hiring request to link yet. Create one under Approvals."
+              />
+            </div>
+            {approvalId !== '' && jd.approval_id === approvalId && (
+              <div>
+                <p className="mini-heading">Linked approval</p>
+                <ApprovalLink approvalId={approvalId} />
+              </div>
+            )}
+            {vacancyApprovals.length > 0 && (
+              <div>
+                <p className="mini-heading">Approvals used by this JD&apos;s vacancies</p>
+                <ul className="approval-links">
+                  {vacancyApprovals.map(({ vacancy, approval }) => (
+                    <li key={vacancy.id}>
+                      <span className="cell-primary">{vacancy.title}</span>
+                      <ApprovalLink approvalId={approval.id} size="sm" />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         )}
       </Tabs>
 

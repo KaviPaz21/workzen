@@ -1,5 +1,6 @@
-import { ArrowLeft, Download, Eye, Layers, RefreshCw, Upload } from 'lucide-react'
+import { ArrowLeft, Download, Eye, GitBranch, Layers, RefreshCw, Upload } from 'lucide-react'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -12,6 +13,7 @@ import type { ExportRow } from '../services/exportExcel'
 import { CvDetailView } from './CvDetailView'
 import { CvViewerModal } from './CvViewerModal'
 import { ExportExcelModal } from './ExportExcelModal'
+import { SendToPipelineModal } from './SendToPipelineModal'
 import { RecommendationBadge } from './StatusBadges'
 
 interface VacancyCvsPanelProps {
@@ -41,6 +43,8 @@ export function VacancyCvsPanel({ vacancy, jd, initialBatchId = null, onUpload }
   const [candidateId, setCandidateId] = useState<string | null>(null)
   const [viewing, setViewing] = useState<Candidate | null>(null)
   const [exportScope, setExportScope] = useState<'batch' | 'all' | null>(null)
+  const [proceeding, setProceeding] = useState(false)
+  const navigate = useNavigate()
 
   const vacancyBatches = batches.filter((batch) => batch.vacancy_id === vacancy.id)
   const batchCandidates = (batch: Batch) => candidates.filter((candidate) => candidate.batch_id === batch.id)
@@ -188,6 +192,15 @@ export function VacancyCvsPanel({ vacancy, jd, initialBatchId = null, onUpload }
           <Button variant="secondary" icon={<Download />} disabled={scoredTotal === 0} onClick={() => setExportScope('all')}>
             Export top candidates
           </Button>
+          <Button
+            variant="secondary"
+            icon={<GitBranch />}
+            disabled={!vacancy.pipeline || scoredTotal === 0}
+            title={!vacancy.pipeline ? 'Schedule a pipeline for this vacancy first' : scoredTotal === 0 ? 'No CV has been scored yet' : undefined}
+            onClick={() => setProceeding(true)}
+          >
+            Proceed with pipeline
+          </Button>
           <Button icon={<Upload />} onClick={() => onUpload(vacancy)}>
             Upload CVs
           </Button>
@@ -203,6 +216,15 @@ export function VacancyCvsPanel({ vacancy, jd, initialBatchId = null, onUpload }
             Fetch into a batch
           </Button>
         </div>
+      )}
+
+      {proceeding && (
+        <SendToPipelineModal
+          vacancy={vacancy}
+          defaultScope="top"
+          onClose={() => setProceeding(false)}
+          onOpenInterview={(created) => navigate(`/hr/recruiteone/interviews/${created.id}`)}
+        />
       )}
 
       {vacancyBatches.length === 0 ? (

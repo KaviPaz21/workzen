@@ -1,24 +1,28 @@
-﻿import { ArrowLeft, ShieldAlert } from 'lucide-react'
+import { ArrowLeft, Info, ShieldAlert } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
-import { formatDate } from '@/lib/format'
+import { formatDate, formatDateRange } from '@/lib/format'
 import { usePageTitle } from '@/lib/usePageTitle'
+import { ApprovalLink } from '../components/approval/ApprovalLink'
 import { ResultsTab } from '../components/interview/ResultsTab'
 import { ScoreCandidates } from '../components/interview/ScoreCandidates'
 import { ScorecardTab } from '../components/interview/ScorecardTab'
 import { StageOverview } from '../components/interview/StageOverview'
-import { currentStageIndex, stageCompleted } from '../services/interviewMath'
+import { VacancyBrief } from '../components/interview/VacancyBrief'
+import { collectionState } from '../data/stage'
+import { currentStageIndex, pooledCandidates, stageCompleted } from '../services/interviewMath'
 import { useCurrentUser } from '../state/CurrentUser'
 import { useStore } from '../state/RecruiteOneStore'
 import type { Candidate } from '../types'
 import { canOpenInterview } from './InterviewsPage'
 
-type View = 'overview' | 'scorecard' | 'score' | 'results'
+type View = 'brief' | 'overview' | 'scorecard' | 'score' | 'results'
 
 const viewLabels: Record<View, string> = {
+  brief: 'Job & CVs',
   overview: 'Overview',
   scorecard: 'Create scorecard',
   score: 'Score candidates',
@@ -28,13 +32,13 @@ const viewLabels: Record<View, string> = {
 export function InterviewPage() {
   usePageTitle('Interview')
   const { interviewId } = useParams()
-  const { interviews, vacancies, candidates } = useStore()
+  const { interviews, vacancies, candidates, jds } = useStore()
   const { user, isHr } = useCurrentUser()
-  const [stageId, setStageId] = useState<string | null>(null)
-  const [view, setView] = useState<View>(isHr ? 'overview' : 'score')
-
   const interview = interviews.find((item) => item.id === interviewId)
   const vacancy = vacancies.find((item) => item.id === interview?.vacancy_id)
+  const collectionClosed = vacancy ? vacancy.collection_closed_at !== null : false
+  const [stageId, setStageId] = useState<string | null>(null)
+  const [view, setView] = useState<View>(collectionClosed ? (isHr ? 'overview' : 'score') : 'brief')
   const stages = vacancy?.pipeline?.stages ?? []
 
   if (!interview || !vacancy) {
@@ -60,14 +64,33 @@ export function InterviewPage() {
     return <EmptyState icon={<ShieldAlert />} title="No stages" description="This interview has no pipeline stages." />
   }
   const stageIndex = stages.findIndex((item) => item.id === stage.id)
+  const jd = jds.find((item) => item.id === vacancy.jd_id)
 
-  const views: View[] = isHr ? ['overview', 'scorecard', 'score', 'results'] : ['scorecard', 'score']
+  const views: View[] = isHr ? ['brief', 'overview', 'scorecard', 'score', 'results'] : ['brief', 'scorecard', 'score']
   const activeView: View = views.includes(view) ? view : views[0]
 
   const allCandidates = interview.candidate_ids
     .map((id) => candidates.find((candidate) => candidate.id === id))
     .filter((candidate): candidate is Candidate => candidate !== undefined)
   const reachedCandidates = allCandidates.filter((candidate) => (interview.progress[candidate.id]?.stage_index ?? 0) >= stageIndex)
+  const firstVisibleIndex = Math.min(...visibleStages.map((item) => stages.findIndex((entry) => entry.id === item.id)))
+  const briefCandidates = collectionClosed
+    ? allCandidates.filter((candidate) => isHr || (interview.progress[candidate.id]?.stage_index ?? 0) >= firstVisibleIndex)
+    : pooledCandidates(vacancy.id, candidates)
+
+  const closingText = collectionClosed
+    ? `CV collection closed ${formatDate(vacancy.collection_closed_at)}`
+    : vacancy.closing_date
+      ? `CV collection ${collectionState(vacancy) === 'ended' ? 'ended' : 'closes'} ${formatDate(vacancy.closing_date)}`
+      : 'CV collection is open'
+  const description = [
+    closingText,
+    `Interviews ${formatDateRange(stages.map((item) => item.scheduled_date))}`,
+    collectionClosed ? `${interview.candidate_ids.length} candidates` : null,
+    isHr ? null : 'you only see your own scorecards and scores',
+  ]
+    .filter((part): part is string => part !== null)
+    .join(' · ')
 
   return (
     <>
@@ -75,17 +98,26 @@ export function InterviewPage() {
         <ArrowLeft aria-hidden="true" />
         All interviews
       </Link>
-      <PageHeader
-        title={vacancy.title}
-        description={`${interview.candidate_ids.length} candidates · CV collection closed ${formatDate(interview.created_at)}${isHr ? '' : ' · you only see your own scorecards and scores'}`}
-      />
+      <PageHeader title={vacancy.title} description={description} actions={<ApprovalLink approvalId={vacancy.approval_id} />} />
+
+      {!collectionClosed && (
+        <div className="notice">
+          <Info aria-hidden="true" />
+          <span>
+            {collectionState(vacancy) === 'ended'
+              ? 'The closing date has passed and applications have stopped, but HR has not closed the CV collection yet. '
+              : 'The CV collection is still open. '}
+            Read the job description and the scored CVs under Job &amp; CVs and prepare your scorecard now. Candidates enter the interview when HR sends them to the pipeline or closes the collection in the CV Pool.
+          </span>
+        </div>
+      )}
 
       <div className="stage-bar">
         <div className="stage-tabs" role="tablist" aria-label="Interview stages">
           {visibleStages.map((item) => {
             const index = stages.findIndex((entry) => entry.id === item.id)
             const mine = item.interviewer_ids.includes(user.id)
-            const isCurrent = index === currentIndex
+            const isCurrent = collectionClosed && index === currentIndex
             const done = stageCompleted(interview, index)
             return (
               <button
@@ -120,10 +152,18 @@ export function InterviewPage() {
       </div>
 
       <Card flush className="reveal card--fill interview-card">
-        {activeView === 'overview' && <StageOverview interview={interview} stage={stage} stageIndex={stageIndex} stages={stages} candidates={allCandidates} />}
+        {activeView === 'brief' && <VacancyBrief vacancy={vacancy} jd={jd} candidates={briefCandidates} collectionClosed={collectionClosed} />}
+        {activeView === 'overview' && <StageOverview interview={interview} stage={stage} stageIndex={stageIndex} stages={stages} candidates={allCandidates} openings={vacancy.openings} />}
         {activeView === 'scorecard' && <ScorecardTab interview={interview} stage={stage} />}
         {activeView === 'score' && (
-          <ScoreCandidates interview={interview} stage={stage} stageIndex={stageIndex} candidates={reachedCandidates} onCreateScorecard={() => setView('scorecard')} />
+          <ScoreCandidates
+            interview={interview}
+            stage={stage}
+            stageIndex={stageIndex}
+            candidates={reachedCandidates}
+            collectionClosed={collectionClosed}
+            onCreateScorecard={() => setView('scorecard')}
+          />
         )}
         {activeView === 'results' && (
           <ResultsTab interview={interview} stage={stage} stageIndex={stageIndex} stages={stages} candidates={reachedCandidates} openings={vacancy.openings} />

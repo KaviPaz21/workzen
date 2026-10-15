@@ -1,11 +1,13 @@
-import { Check, LoaderCircle, Sparkles, TriangleAlert } from 'lucide-react'
+import { Check, LoaderCircle, ShieldCheck, Sparkles, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { cleanBuckets, defaultWeights, emptyBuckets } from '../data/buckets'
+import { usableForJd } from '../services/approvalMath'
 import { decomposeJd } from '../services/jdApi'
 import type { JobDescription, Level } from '../types'
-import type { NewJd } from '../state/RecruiteOneStore'
+import { useStore, type NewJd } from '../state/RecruiteOneStore'
+import { ApprovalPicker } from './approval/ApprovalPicker'
 import { BucketEditor } from './BucketEditor'
 import { JdMetaFields } from './JdMetaFields'
 import { WeightEditor } from './WeightEditor'
@@ -38,6 +40,11 @@ export function NewJdWizard({ open, onClose, onSave, onSaved }: NewJdWizardProps
   const [buckets, setBuckets] = useState(emptyBuckets())
   const [weights, setWeights] = useState(defaultWeights())
 
+  const [linkApproval, setLinkApproval] = useState(false)
+  const [approvalId, setApprovalId] = useState('')
+  const { approvals, vacancies } = useStore()
+  const linkable = approvals.filter((approval) => usableForJd(approval, vacancies))
+
   const stepIndex = steps.findIndex((item) => item.value === step)
 
   async function submitText() {
@@ -68,6 +75,7 @@ export function NewJdWizard({ open, onClose, onSave, onSaved }: NewJdWizardProps
       raw_text: text.trim(),
       buckets: cleanBuckets(buckets),
       weights,
+      approval_id: linkApproval && approvalId !== '' ? approvalId : null,
     })
     onSaved(created)
   }
@@ -164,6 +172,37 @@ export function NewJdWizard({ open, onClose, onSave, onSaved }: NewJdWizardProps
               onChange={(event) => setText(event.target.value)}
             />
           </label>
+          <section className={`option${linkApproval ? ' option--on' : ''}`}>
+            <label className="option__head">
+              <input
+                type="checkbox"
+                className="checkbox"
+                checked={linkApproval}
+                onChange={(event) => {
+                  setLinkApproval(event.target.checked)
+                  if (!event.target.checked) setApprovalId('')
+                }}
+              />
+              <span className="option__icon" aria-hidden="true">
+                <ShieldCheck />
+              </span>
+              <span className="option__text">
+                <span className="cell-primary">Link a hiring approval (optional)</span>
+                <span className="cell-secondary">Connect this JD to the hiring request it was written for. You can also do it later.</span>
+              </span>
+            </label>
+            {linkApproval && (
+              <div className="option__body">
+                <ApprovalPicker
+                  label="Hiring approval for this JD"
+                  approvals={linkable}
+                  value={approvalId}
+                  onChange={setApprovalId}
+                  emptyMessage="There is no pending or approved hiring request to link yet. Create one under Approvals."
+                />
+              </div>
+            )}
+          </section>
           {analysed && <p className="field__hint">Submitting again will replace the requirements you edited.</p>}
           {error && (
             <div className="notice notice--danger" role="alert">

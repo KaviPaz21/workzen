@@ -93,8 +93,8 @@ export const generalTools: GeneralTool[] = [
     id: 'assistant',
     name: 'AI Assistant',
     description: 'Ask WorkZen questions and get answers from across your departments.',
-    path: soonPath('assistant'),
-    status: 'planned',
+    path: '/assistant',
+    status: 'live',
     icon: Sparkles,
   },
   {

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from app.core.errors import InvalidRequestError, NotFoundError
 from app.repositories.record_repository import RecordRepository
 
-COLLECTIONS = ("jds", "vacancies", "candidates", "batches", "interviews", "scorecards", "interview_scores")
+COLLECTIONS = ("jds", "vacancies", "candidates", "batches", "interviews", "scorecards", "interview_scores", "approvals")
 ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 

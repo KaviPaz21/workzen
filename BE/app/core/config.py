@@ -24,12 +24,15 @@ class Settings(BaseSettings):
 
     azure_storage_connection_string: SecretStr = SecretStr("")
     azure_storage_container_cvs: str = "cvs"
+    azure_storage_container_kb: str = "knowledge"
 
     foundry_endpoint: str = ""
     foundry_api_key: SecretStr = SecretStr("")
     foundry_api_version: str = ""
     foundry_chat_deployment: str = ""
     foundry_evaluator_deployment: str = ""
+
+    assistant_models: str = ""
 
     @property
     def cosmos_configured(self) -> bool:
@@ -42,6 +45,13 @@ class Settings(BaseSettings):
     @property
     def foundry_configured(self) -> bool:
         return bool(self.foundry_endpoint and self.foundry_api_key.get_secret_value() and self.foundry_chat_deployment)
+
+    @property
+    def assistant_model_list(self) -> list[str]:
+        listed = [name.strip() for name in self.assistant_models.split(",") if name.strip()]
+        if listed:
+            return listed
+        return [self.foundry_chat_deployment] if self.foundry_chat_deployment else []
 
     @property
     def max_upload_bytes(self) -> int:

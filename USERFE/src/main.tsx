@@ -12,6 +12,8 @@ import './styles/ui.css'
 import './styles/layout.css'
 import './styles/pages.css'
 import './styles/jd.css'
+import './styles/approvals.css'
+import './styles/assistant.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

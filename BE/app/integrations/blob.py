@@ -8,6 +8,12 @@ from app.core.config import Settings
 
 
 @dataclass
+class BlobInfo:
+    name: str
+    etag: str
+
+
+@dataclass
 class BlobStorage:
     container: ContainerClient
 
@@ -38,6 +44,18 @@ class BlobStorage:
             await self.container.delete_blob(blob_name)
         except ResourceNotFoundError:
             return
+
+    async def list_documents(self) -> list[BlobInfo]:
+        return [BlobInfo(name=blob.name, etag=str(blob.etag)) async for blob in self.container.list_blobs()]
+
+
+async def open_knowledge_storage(service: BlobServiceClient, settings: Settings) -> BlobStorage:
+    container = service.get_container_client(settings.azure_storage_container_kb)
+    try:
+        await container.create_container()
+    except ResourceExistsError:
+        pass
+    return BlobStorage(container=container)
 
 
 async def connect_blob_storage(settings: Settings) -> tuple[BlobServiceClient, BlobStorage]:

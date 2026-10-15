@@ -4,8 +4,11 @@ import { Button } from '@/components/ui/Button'
 import { formatDate, titleCase } from '@/lib/format'
 import { isPipelineValid, emptyPipeline, PipelineEditor } from './PipelineEditor'
 import { ShareLink } from './ShareLink'
-import { newShareToken, todayIso, type NewVacancy } from '../state/RecruiteOneStore'
+import { Link } from 'react-router-dom'
+import { approvalReference, usableForVacancy } from '../services/approvalMath'
+import { newShareToken, todayIso, useStore, type NewVacancy } from '../state/RecruiteOneStore'
 import type { JobDescription, Pipeline, Vacancy } from '../types'
+import { ApprovalPicker } from './approval/ApprovalPicker'
 
 type Step = 'details' | 'options' | 'done'
 
@@ -19,9 +22,14 @@ interface VacancyWizardBodyProps {
 }
 
 export function VacancyWizardBody({ jds, lockedJd = null, onCreate, onUploadNow, onDone, onCancel }: VacancyWizardBodyProps) {
+  const { approvals, vacancies } = useStore()
+  const available = approvals.filter((approval) => usableForVacancy(approval, vacancies))
+  const linkedDefault = (jd: JobDescription | null | undefined) => available.find((approval) => approval.id === jd?.approval_id)
+
   const [step, setStep] = useState<Step>('details')
   const [title, setTitle] = useState('')
   const [jdId, setJdId] = useState(lockedJd?.id ?? '')
+  const [approvalId, setApprovalId] = useState(linkedDefault(lockedJd)?.id ?? '')
   const [query, setQuery] = useState('')
   const [shareable, setShareable] = useState(false)
   const [closingDate, setClosingDate] = useState('')
@@ -32,6 +40,19 @@ export function VacancyWizardBody({ jds, lockedJd = null, onCreate, onUploadNow,
   const [created, setCreated] = useState<Vacancy | null>(null)
 
   const selectedJd = lockedJd ?? jds.find((jd) => jd.id === jdId) ?? null
+  const selectedApproval = available.find((approval) => approval.id === approvalId) ?? null
+
+  function chooseJd(jd: JobDescription) {
+    setJdId(jd.id)
+    const approval = linkedDefault(jd)
+    if (approval) chooseApproval(approval.id)
+  }
+
+  function chooseApproval(id: string) {
+    setApprovalId(id)
+    const approval = available.find((item) => item.id === id)
+    if (approval && title.trim() === '') setTitle(approval.position_name)
+  }
 
   const shown = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -40,14 +61,15 @@ export function VacancyWizardBody({ jds, lockedJd = null, onCreate, onUploadNow,
     )
   }, [jds, query])
 
-  const canContinue = title.trim().length > 0 && selectedJd !== null
+  const canContinue = title.trim().length > 0 && selectedJd !== null && selectedApproval !== null
   const canSave = (!shareable || closingDate !== '') && (!pipelineOn || pipelineConfirmed)
 
   function save() {
-    if (!selectedJd) return
+    if (!selectedJd || !selectedApproval) return
     const vacancy = onCreate({
       title: title.trim(),
       jd: selectedJd,
+      approval: selectedApproval,
       closing_date: shareable ? closingDate : null,
       shareable,
       share_token: shareable ? token : undefined,
@@ -58,6 +80,7 @@ export function VacancyWizardBody({ jds, lockedJd = null, onCreate, onUploadNow,
   }
 
   if (step === 'done' && created) {
+    const createdApproval = approvals.find((approval) => approval.id === created.approval_id)
     return (
       <div className="wizard">
         <div className="wizard__done">
@@ -70,6 +93,10 @@ export function VacancyWizardBody({ jds, lockedJd = null, onCreate, onUploadNow,
           </p>
         </div>
         <dl className="detail-list">
+          <div>
+            <dt>Hiring approval</dt>
+            <dd>{createdApproval ? `${createdApproval.position_name} · ${approvalReference(createdApproval)}` : '—'}</dd>
+          </div>
           <div>
             <dt>Closing date</dt>
             <dd>{formatDate(created.closing_date)}</dd>
@@ -147,7 +174,7 @@ export function VacancyWizardBody({ jds, lockedJd = null, onCreate, onUploadNow,
                 {shown.map((jd) => (
                   <li key={jd.id}>
                     <label className={`jd-option${jd.id === jdId ? ' jd-option--selected' : ''}`}>
-                      <input type="radio" name="jd" className="radio" checked={jd.id === jdId} onChange={() => setJdId(jd.id)} />
+                      <input type="radio" name="jd" className="radio" checked={jd.id === jdId} onChange={() => chooseJd(jd)} />
                       <span className="jd-option__text">
                         <span className="cell-primary">{jd.name}</span>
                         <span className="cell-secondary">
@@ -162,6 +189,22 @@ export function VacancyWizardBody({ jds, lockedJd = null, onCreate, onUploadNow,
               </ul>
             </div>
           )}
+
+          <div className="field approval-field">
+            <span className="field__label">Hiring approval</span>
+            <span className="approval-field__required">Required. Only approved hiring requests that are not used by another vacancy can be linked.</span>
+            <ApprovalPicker
+              label="Hiring approval for this vacancy"
+              approvals={available}
+              value={approvalId}
+              onChange={chooseApproval}
+              emptyMessage={
+                <span>
+                  No approved hiring request is available. Create one and get it approved under <Link to="/hr/recruiteone/approvals">Approvals</Link> first.
+                </span>
+              }
+            />
+          </div>
         </div>
       )}
 

@@ -1,4 +1,5 @@
 import { Badge, type BadgeTone } from '@/components/ui/Badge'
+import { approvalStateMeta, type ApprovalState } from '../data/approvals'
 import type { JdState } from '../state/RecruiteOneStore'
 import type { CandidateStatus, Recommendation, VacancyStatus } from '../types'
 
@@ -33,8 +34,16 @@ export const recommendationMeta: Record<Recommendation, Meta> = {
   not_a_match: { label: 'Not a match', tone: 'danger' },
 }
 
+export function ApprovalStateBadge({ state }: { state: ApprovalState }) {
+  return <Badge tone={approvalStateMeta[state].tone}>{approvalStateMeta[state].label}</Badge>
+}
+
 export function JdStatusBadge({ state }: { state: JdState }) {
   return <Badge tone={jdMeta[state].tone}>{jdMeta[state].label}</Badge>
+}
+
+export function vacancyStatusLabel(status: VacancyStatus) {
+  return vacancyMeta[status].label
 }
 
 export function VacancyStatusBadge({ status }: { status: VacancyStatus }) {

@@ -1,4 +1,4 @@
-import { BriefcaseBusiness, CalendarCheck, FileText, LayoutDashboard, UsersRound, type LucideIcon } from 'lucide-react'
+import { BriefcaseBusiness, CalendarCheck, FileText, LayoutDashboard, ShieldCheck, UsersRound, type LucideIcon } from 'lucide-react'
 
 export interface NavItem {
   to: string
@@ -9,6 +9,7 @@ export interface NavItem {
 
 export const recruiteOneNav: NavItem[] = [
   { to: '/hr/recruiteone/dashboard', label: 'Dashboard', description: 'Hiring metrics and activity', icon: LayoutDashboard },
+  { to: '/hr/recruiteone/approvals', label: 'Approvals', description: 'Hiring requests and approvals', icon: ShieldCheck },
   { to: '/hr/recruiteone/jds', label: 'JDs', description: 'Job descriptions', icon: FileText },
   { to: '/hr/recruiteone/vacancies', label: 'Vacancies', description: 'Open and planned roles', icon: BriefcaseBusiness },
   { to: '/hr/recruiteone/cv-pool', label: 'CV Pool', description: 'CVs by vacancy and batch', icon: UsersRound },

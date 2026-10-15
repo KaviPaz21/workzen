@@ -6,8 +6,10 @@ import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { SearchField } from '@/components/ui/SearchField'
-import { formatDate, titleCase } from '@/lib/format'
+import { formatDate, formatDateRange, relativeDay, titleCase } from '@/lib/format'
 import { usePageTitle } from '@/lib/usePageTitle'
+import { collectionState } from '../data/stage'
+import { pooledCandidates } from '../services/interviewMath'
 import { useCurrentUser } from '../state/CurrentUser'
 import { todayIso, useStore } from '../state/RecruiteOneStore'
 import type { Vacancy } from '../types'
@@ -20,17 +22,22 @@ export function canOpenInterview(vacancy: Vacancy | undefined, userId: string, i
 export function InterviewsPage() {
   usePageTitle('Interviews')
   const navigate = useNavigate()
-  const { interviews, vacancies, jds } = useStore()
+  const { interviews, vacancies, jds, candidates } = useStore()
   const { user, isHr } = useCurrentUser()
   const [query, setQuery] = useState('')
 
   const rows = useMemo(() => {
     const term = query.trim().toLowerCase()
-    return interviews
-      .map((interview) => ({ interview, vacancy: vacancies.find((item) => item.id === interview.vacancy_id) }))
-      .filter(({ vacancy }) => canOpenInterview(vacancy, user.id, isHr))
-      .filter(({ vacancy }) => term === '' || (vacancy?.title.toLowerCase().includes(term) ?? false))
-  }, [interviews, vacancies, user.id, isHr, query])
+    return vacancies
+      .filter((vacancy) => vacancy.pipeline !== null && vacancy.pipeline !== undefined)
+      .filter((vacancy) => canOpenInterview(vacancy, user.id, isHr))
+      .filter((vacancy) => term === '' || vacancy.title.toLowerCase().includes(term) || vacancy.department.toLowerCase().includes(term))
+      .map((vacancy) => ({ vacancy, interview: interviews.find((item) => item.vacancy_id === vacancy.id) }))
+  }, [vacancies, interviews, user.id, isHr, query])
+
+  function open(interviewId: string | undefined) {
+    if (interviewId) navigate(`/hr/recruiteone/interviews/${interviewId}`)
+  }
 
   return (
     <>
@@ -38,8 +45,8 @@ export function InterviewsPage() {
         title="Interviews"
         description={
           isHr
-            ? 'Every vacancy whose CV collection is closed. HR sees all interviews and all scores.'
-            : 'Interviews where you are assigned as an interviewer. You only see your own scorecards and scores.'
+            ? 'Every vacancy with a scheduled pipeline, from the moment it is scheduled. HR sees all interviews and all scores.'
+            : 'Vacancies where you are an interviewer, from the moment the pipeline is scheduled. Read the job description and CVs and prepare your scorecard ahead of time. You only see your own scorecards and scores.'
         }
       />
 
@@ -48,14 +55,14 @@ export function InterviewsPage() {
           <span className="cell-secondary">
             Viewing as <strong>{user.name}</strong> ({isHr ? 'HR' : user.role})
           </span>
-          <SearchField label="Search interviews" placeholder="Search vacancy" value={query} onChange={setQuery} />
+          <SearchField label="Search interviews" placeholder="Search vacancy or department" value={query} onChange={setQuery} />
         </div>
 
         {rows.length === 0 ? (
           <EmptyState
             icon={<CalendarCheck />}
             title="No interviews to show"
-            description={isHr ? 'An interview is created when you close the CV collection of a vacancy in the CV pool.' : 'You have not been assigned to any interview yet.'}
+            description={isHr ? 'A vacancy appears here as soon as a pipeline is scheduled for it.' : 'You have not been assigned as an interviewer on any scheduled pipeline yet.'}
           />
         ) : (
           <div className="table-wrap">
@@ -64,41 +71,71 @@ export function InterviewsPage() {
                 <tr>
                   <th scope="col">Vacancy</th>
                   <th scope="col">Role</th>
+                  <th scope="col">Closing date</th>
+                  <th scope="col">Interview dates</th>
                   <th scope="col">Candidates</th>
-                  <th scope="col">Progress</th>
-                  <th scope="col">Next stage date</th>
-                  <th scope="col">Collection closed</th>
+                  <th scope="col">Next stage</th>
                   <th scope="col">Your part</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ interview, vacancy }) => {
-                  const stages = vacancy?.pipeline?.stages ?? []
-                  const jd = jds.find((item) => item.id === vacancy?.jd_id)
-                  const progress = Object.values(interview.progress)
+                {rows.map(({ vacancy, interview }) => {
+                  const stages = vacancy.pipeline?.stages ?? []
+                  const jd = jds.find((item) => item.id === vacancy.jd_id)
+                  const collectionClosed = vacancy.collection_closed_at !== null
+                  const scoredCount = pooledCandidates(vacancy.id, candidates).filter((candidate) => candidate.score !== null).length
+                  const progress = Object.values(interview?.progress ?? {})
                   const active = progress.filter((item) => item.outcome === 'active')
                   const selected = progress.filter((item) => item.outcome === 'selected').length
                   const furthest = active.reduce((best, item) => Math.max(best, item.stage_index), 0)
                   const next = stages.map((stage) => stage.scheduled_date).filter((date): date is string => date !== null && date >= todayIso()).sort()[0]
                   const mine = stages.filter((stage) => stage.interviewer_ids.includes(user.id))
                   return (
-                    <tr key={interview.id} className="row-clickable" onClick={() => navigate(`/hr/recruiteone/interviews/${interview.id}`)}>
+                    <tr key={vacancy.id} className={interview ? 'row-clickable' : undefined} onClick={() => open(interview?.id)}>
                       <td className="cell-wide">
-                        <button type="button" className="link-button" onClick={() => navigate(`/hr/recruiteone/interviews/${interview.id}`)}>
-                          {vacancy?.title ?? 'Unknown vacancy'}
+                        <button type="button" className="link-button" disabled={!interview} onClick={() => open(interview?.id)}>
+                          {vacancy.title}
                         </button>
-                        <p className="cell-secondary">{vacancy?.department}</p>
+                        <p className="cell-secondary">{vacancy.department}</p>
                       </td>
                       <td>
                         {jd?.role ?? '—'}
                         {jd && <p className="cell-secondary">{titleCase(jd.level)} level</p>}
                       </td>
-                      <td>{interview.candidate_ids.length}</td>
                       <td className="nowrap">
-                        {active.length > 0 ? `${stages[furthest]?.name ?? 'Stage'} (${furthest + 1} of ${stages.length})` : `${selected} selected, ${progress.length - selected} out`}
+                        {formatDate(vacancy.closing_date)}
+                        <p className="cell-secondary">
+                          {collectionClosed
+                            ? `Collection closed ${formatDate(vacancy.collection_closed_at)}`
+                            : vacancy.closing_date
+                              ? relativeDay(vacancy.closing_date)
+                              : 'No closing date set'}
+                        </p>
                       </td>
-                      <td className="cell-secondary">{formatDate(next ?? null)}</td>
-                      <td className="cell-secondary">{formatDate(interview.created_at)}</td>
+                      <td className="nowrap">
+                        {formatDateRange(stages.map((stage) => stage.scheduled_date))}
+                        <p className="cell-secondary">
+                          {stages.length} {stages.length === 1 ? 'stage' : 'stages'}
+                        </p>
+                      </td>
+                      <td className="nowrap">
+                        {collectionClosed ? (
+                          <>
+                            {interview?.candidate_ids.length ?? 0} in interview
+                            <p className="cell-secondary">
+                              {active.length > 0 ? `${stages[furthest]?.name ?? 'Stage'} (${furthest + 1} of ${stages.length})` : `${selected} selected, ${progress.length - selected} out`}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            {collectionState(vacancy) === 'ended' ? <Badge tone="warning">Closing date passed</Badge> : <Badge tone="info">CV collection open</Badge>}
+                            <p className="cell-secondary">
+                              {scoredCount} {scoredCount === 1 ? 'CV' : 'CVs'} scored
+                            </p>
+                          </>
+                        )}
+                      </td>
+                      <td className="cell-secondary nowrap">{formatDate(next ?? null)}</td>
                       <td>
                         {isHr && <Badge tone="success">HR</Badge>}{' '}
                         {mine.length > 0 && <Badge tone="info">Interviewer: {mine.map((stage) => stage.name).join(', ')}</Badge>}

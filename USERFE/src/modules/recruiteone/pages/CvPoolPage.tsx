@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarCheck, Download, Eye, Layers, RefreshCw, Upload, UsersRound, X } from 'lucide-react'
+import { ArrowLeft, CalendarCheck, Download, Eye, Layers, RefreshCw, Send, Upload, UsersRound, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Avatar } from '@/components/ui/Avatar'
@@ -13,11 +13,14 @@ import { ScoreRing } from '@/components/ui/ScoreRing'
 import { SearchField } from '@/components/ui/SearchField'
 import { formatDate, titleCase } from '@/lib/format'
 import { usePageTitle } from '@/lib/usePageTitle'
+import { ApprovalLink } from '../components/approval/ApprovalLink'
 import { CloseCollectionModal } from '../components/CloseCollectionModal'
 import { CvReasoningModal } from '../components/CvReasoningModal'
 import { CvViewerModal } from '../components/CvViewerModal'
 import { ExportExcelModal } from '../components/ExportExcelModal'
+import { collectionState } from '../data/stage'
 import { PipelineStageList } from '../components/VacancyPipelineTab'
+import { SendToPipelineModal } from '../components/SendToPipelineModal'
 import { RecommendationBadge } from '../components/StatusBadges'
 import { UploadCvsModal } from '../components/UploadCvsModal'
 import type { ExportRow } from '../services/exportExcel'
@@ -102,14 +105,14 @@ function VacancyTable({ onOpen, onUpload }: { onOpen: (id: string) => void; onUp
 
   const options: FilterOption<CollectionFilter>[] = [
     { value: 'all', label: 'All', count: vacancies.length },
-    { value: 'collecting', label: 'Collecting', count: vacancies.filter((vacancy) => !vacancy.collection_closed_at).length },
-    { value: 'closed', label: 'Collection closed', count: vacancies.filter((vacancy) => vacancy.collection_closed_at).length },
+    { value: 'collecting', label: 'Collecting', count: vacancies.filter((vacancy) => collectionState(vacancy) === 'collecting').length },
+    { value: 'closed', label: 'Collection over', count: vacancies.filter((vacancy) => collectionState(vacancy) !== 'collecting').length },
   ]
 
   const rows = useMemo(() => {
     const term = query.trim().toLowerCase()
     return vacancies.filter((vacancy) => {
-      const closed = vacancy.collection_closed_at !== null
+      const closed = collectionState(vacancy) !== 'collecting'
       const matchesFilter = filter === 'all' || (filter === 'closed' ? closed : !closed)
       return matchesFilter && (term === '' || vacancy.title.toLowerCase().includes(term) || vacancy.department.toLowerCase().includes(term))
     })
@@ -169,7 +172,11 @@ function VacancyTable({ onOpen, onUpload }: { onOpen: (id: string) => void; onUp
                         {numbers.scored} / {numbers.listed}
                       </td>
                       <td>{numbers.selected}</td>
-                      <td>{vacancy.collection_closed_at ? <Badge tone="danger">Closed {formatDate(vacancy.collection_closed_at)}</Badge> : <Badge tone="success">Collecting</Badge>}</td>
+                      <td>
+                        {collectionState(vacancy) === 'closed' && <Badge tone="danger">Closed {formatDate(vacancy.collection_closed_at)}</Badge>}
+                        {collectionState(vacancy) === 'ended' && <Badge tone="warning">Ended {formatDate(vacancy.closing_date)}</Badge>}
+                        {collectionState(vacancy) === 'collecting' && <Badge tone="success">Collecting</Badge>}
+                      </td>
                     </tr>
                   )
                 })}
@@ -198,6 +205,7 @@ function VacancyPool({ vacancy, onBack, onOpenBatch, onUpload }: VacancyPoolProp
   const [tab, setTab] = useState<PoolTab>('batches')
   const [confirmingReevaluate, setConfirmingReevaluate] = useState(false)
   const [closing, setClosing] = useState(false)
+  const [sending, setSending] = useState(false)
   const [viewing, setViewing] = useState<Candidate | null>(null)
   const [reasoningId, setReasoningId] = useState<string | null>(null)
 
@@ -206,6 +214,7 @@ function VacancyPool({ vacancy, onBack, onOpenBatch, onUpload }: VacancyPoolProp
   const pooled = candidates.filter((candidate) => own.some((batch) => batch.id === candidate.batch_id))
   const selected = sortCandidates(candidates.filter((candidate) => candidate.selected && candidate.vacancy_ids.includes(vacancy.id)))
   const closed = vacancy.collection_closed_at !== null
+  const state = collectionState(vacancy)
   const interview = interviews.find((item) => item.vacancy_id === vacancy.id)
   const eligible = pooled.filter((candidate) => !candidate.selected)
 
@@ -223,15 +232,30 @@ function VacancyPool({ vacancy, onBack, onOpenBatch, onUpload }: VacancyPoolProp
       </button>
       <PageHeader
         title={vacancy.title}
-        description={`${jd ? `${jd.role} · ${jd.sector} · ${titleCase(jd.level)} level` : 'Job description unavailable'}${closed ? ` · CV collection closed ${formatDate(vacancy.collection_closed_at)}` : ''}`}
+        description={`${jd ? `${jd.role} · ${jd.sector} · ${titleCase(jd.level)} level` : 'Job description unavailable'}${closed ? ` · CV collection closed ${formatDate(vacancy.collection_closed_at)}` : state === 'ended' ? ` · closing date ${formatDate(vacancy.closing_date)} has passed, collection not closed yet` : ''}`}
         actions={
           <>
+            <ApprovalLink approvalId={vacancy.approval_id} />
             <Button variant="secondary" icon={<Upload />} disabled={closed} onClick={onUpload}>
               Upload CVs
             </Button>
             <Button variant="secondary" icon={<RefreshCw />} disabled={eligible.length === 0} onClick={() => setConfirmingReevaluate(true)}>
               Re-evaluate vacancy
             </Button>
+            <Button
+              variant="secondary"
+              icon={<Send />}
+              disabled={!vacancy.pipeline}
+              title={vacancy.pipeline ? undefined : 'Schedule a pipeline for this vacancy first'}
+              onClick={() => setSending(true)}
+            >
+              Send to pipeline
+            </Button>
+            {!closed && interview && interview.candidate_ids.length > 0 && (
+              <Button variant="secondary" icon={<CalendarCheck />} onClick={() => navigate(`/hr/recruiteone/interviews/${interview.id}`)}>
+                Open interview
+              </Button>
+            )}
             {closed && interview ? (
               <Button icon={<CalendarCheck />} onClick={() => navigate(`/hr/recruiteone/interviews/${interview.id}`)}>
                 Open interview
@@ -345,7 +369,7 @@ function VacancyPool({ vacancy, onBack, onOpenBatch, onUpload }: VacancyPoolProp
                           size="sm"
                           variant="ghost"
                           icon={<X />}
-                          disabled={closed}
+                          disabled={closed || interview?.progress[candidate.id] !== undefined}
                           aria-label={`Remove ${candidate.full_name} from the selection`}
                           onClick={(event) => {
                             event.stopPropagation()
@@ -389,7 +413,7 @@ function VacancyPool({ vacancy, onBack, onOpenBatch, onUpload }: VacancyPoolProp
                 </div>
                 <div>
                   <dt>CV collection</dt>
-                  <dd>{closed ? `Closed ${formatDate(vacancy.collection_closed_at)}` : 'Open'}</dd>
+                  <dd>{closed ? `Closed ${formatDate(vacancy.collection_closed_at)}` : state === 'ended' ? `Ended ${formatDate(vacancy.closing_date)}, not closed by HR yet` : 'Open'}</dd>
                 </div>
               </dl>
             </section>
@@ -433,6 +457,7 @@ function VacancyPool({ vacancy, onBack, onOpenBatch, onUpload }: VacancyPoolProp
           onOpenInterview={(created) => navigate(`/hr/recruiteone/interviews/${created.id}`)}
         />
       )}
+      {sending && <SendToPipelineModal vacancy={vacancy} defaultScope="selected" onClose={() => setSending(false)} onOpenInterview={(created) => navigate(`/hr/recruiteone/interviews/${created.id}`)} />}
       {viewing && <CvViewerModal candidate={viewing} onClose={() => setViewing(null)} />}
       {reasoningId && <CvReasoningModal candidateId={reasoningId} onClose={() => setReasoningId(null)} onViewCv={setViewing} />}
     </>
@@ -440,13 +465,17 @@ function VacancyPool({ vacancy, onBack, onOpenBatch, onUpload }: VacancyPoolProp
 }
 
 function BatchPool({ vacancy, batch, onBack }: { vacancy: Vacancy; batch: Batch; onBack: () => void }) {
-  const { candidates, jds, toggleSelected, reevaluate } = useStore()
+  const { candidates, jds, interviews, toggleSelected, reevaluate } = useStore()
+  const navigate = useNavigate()
   const [viewing, setViewing] = useState<Candidate | null>(null)
   const [reasoningId, setReasoningId] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [sending, setSending] = useState(false)
   const jd: JobDescription | undefined = jds.find((item) => item.id === vacancy.jd_id)
   const closed = vacancy.collection_closed_at !== null
+  const interview = interviews.find((item) => item.vacancy_id === vacancy.id)
+  const inPipeline = (candidateId: string) => interview?.progress[candidateId] !== undefined
 
   const rows = sortCandidates(candidates.filter((candidate) => candidate.batch_id === batch.id))
   const scored = rows.filter((candidate) => candidate.score !== null)
@@ -464,11 +493,21 @@ function BatchPool({ vacancy, batch, onBack }: { vacancy: Vacancy; batch: Batch;
         description={`Created ${formatDate(batch.created_at)} · ${rows.length} CVs · ${scored.length} scored · highest score first`}
         actions={
           <>
+            <ApprovalLink approvalId={vacancy.approval_id} />
             <Button variant="secondary" icon={<Download />} disabled={scored.length === 0} onClick={() => setExporting(true)}>
               Export Excel
             </Button>
             <Button variant="secondary" icon={<RefreshCw />} disabled={eligible.length === 0} onClick={() => setConfirming(true)}>
               Re-evaluate batch
+            </Button>
+            <Button
+              variant="secondary"
+              icon={<Send />}
+              disabled={!vacancy.pipeline}
+              title={vacancy.pipeline ? undefined : 'Schedule a pipeline for this vacancy first'}
+              onClick={() => setSending(true)}
+            >
+              Send to pipeline
             </Button>
           </>
         }
@@ -500,7 +539,7 @@ function BatchPool({ vacancy, batch, onBack }: { vacancy: Vacancy; batch: Batch;
                       type="checkbox"
                       className="checkbox"
                       checked={candidate.selected}
-                      disabled={closed}
+                      disabled={closed || inPipeline(candidate.id)}
                       aria-label={`Select ${candidate.full_name} for interview`}
                       onChange={() => toggleSelected(candidate.id)}
                     />
@@ -515,7 +554,7 @@ function BatchPool({ vacancy, batch, onBack }: { vacancy: Vacancy; batch: Batch;
                         </button>
                         <p className="cell-secondary">
                           {candidate.email || candidate.file_name}
-                          {candidate.selected && ' · selected'}
+                          {inPipeline(candidate.id) ? ' · in pipeline' : candidate.selected && ' · selected'}
                         </p>
                       </div>
                     </div>
@@ -563,6 +602,15 @@ function BatchPool({ vacancy, batch, onBack }: { vacancy: Vacancy; batch: Batch;
           setConfirming(false)
         }}
       />
+      {sending && (
+        <SendToPipelineModal
+          vacancy={vacancy}
+          batchId={batch.id}
+          defaultScope="selected"
+          onClose={() => setSending(false)}
+          onOpenInterview={(created) => navigate(`/hr/recruiteone/interviews/${created.id}`)}
+        />
+      )}
       {exporting && <ExportExcelModal vacancy={vacancy} jd={jd} rows={exportRows} scopeLabel={`Batch: ${batch.name}`} onClose={() => setExporting(false)} />}
       {viewing && <CvViewerModal candidate={viewing} onClose={() => setViewing(null)} />}
       {reasoningId && <CvReasoningModal candidateId={reasoningId} onClose={() => setReasoningId(null)} onViewCv={setViewing} />}

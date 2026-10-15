@@ -17,6 +17,6 @@ def extract_text(file_name: str, data: bytes) -> str:
     if extension == ".docx":
         document = Document(io.BytesIO(data))
         return "\n".join(paragraph.text for paragraph in document.paragraphs).strip()
-    if extension == ".txt":
+    if extension in (".txt", ".md"):
         return data.decode("utf-8", errors="ignore").strip()
     raise InvalidRequestError("Unsupported file type. Upload a PDF, DOCX or TXT file.")

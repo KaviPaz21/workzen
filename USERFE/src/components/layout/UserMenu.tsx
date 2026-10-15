@@ -27,7 +27,7 @@ export function UserMenu() {
 
   const groups = [
     { label: 'HR team (see everything)', members: people.filter((person) => person.department === hrDepartment) },
-    { label: 'Interviewers (see only their interviews)', members: people.filter((person) => person.department !== hrDepartment) },
+    { label: 'Other departments (interviewers and approvers)', members: people.filter((person) => person.department !== hrDepartment) },
   ]
 
   return (

@@ -1,9 +1,18 @@
 import type { BadgeTone } from '@/components/ui/Badge'
+import { daysFromToday } from '@/lib/format'
 import type { Vacancy } from '../types'
 
 export interface VacancyStage {
   label: string
   tone: BadgeTone
+}
+
+export type CollectionState = 'collecting' | 'ended' | 'closed'
+
+export function collectionState(vacancy: Vacancy): CollectionState {
+  if (vacancy.collection_closed_at) return 'closed'
+  if (vacancy.closing_date && daysFromToday(vacancy.closing_date) < 0) return 'ended'
+  return 'collecting'
 }
 
 export function vacancyStage(vacancy: Vacancy): VacancyStage {

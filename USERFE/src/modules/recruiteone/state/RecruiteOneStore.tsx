@@ -1,16 +1,44 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { apiDelete, apiGet, apiPut } from '@/lib/api'
 import { saveCvFile } from '@/lib/cvFiles'
+import { isHrPerson, personById } from '../data/people'
+import { buildSteps, canDecide, currentStepIndex } from '../services/approvalMath'
 import { scoreStoredCv } from '../services/scoringApi'
-import type { Batch, Candidate, Criterion, Interview, InterviewScore, JobDescription, Pipeline, Scorecard, Vacancy } from '../types'
+import type {
+  Batch,
+  Candidate,
+  Criterion,
+  HiringApproval,
+  Interview,
+  InterviewScore,
+  JobDescription,
+  Level,
+  Person,
+  Pipeline,
+  Scorecard,
+  Vacancy,
+} from '../types'
 
 export type JdState = 'published' | 'draft' | 'inactive' | 'deleted'
 
 export type NewJd = Omit<JobDescription, 'id' | 'deleted' | 'created_at' | 'updated_at'>
 
+export interface NewApproval {
+  position_name: string
+  recruiter_name: string
+  level: Level
+  department: string
+  jd_details: string
+  reason: string
+  position_value: string
+  head_id: string
+  created_by: string
+}
+
 export interface NewVacancy {
   title: string
   jd: JobDescription
+  approval: HiringApproval
   closing_date: string | null
   shareable: boolean
   share_token?: string
@@ -53,6 +81,7 @@ interface Snapshot {
   interviews: Interview[]
   scorecards: Scorecard[]
   interviewScores: InterviewScore[]
+  approvals: HiringApproval[]
 }
 
 type SnapshotKey = keyof Snapshot
@@ -69,6 +98,10 @@ interface StoreValue extends Snapshot {
   updateJd: (id: string, changes: Partial<NewJd>) => void
   deleteJd: (id: string) => void
   restoreJd: (id: string) => void
+  addApproval: (input: NewApproval, submit: boolean) => HiringApproval
+  updateApproval: (id: string, input: NewApproval, submit: boolean) => void
+  deleteApproval: (id: string) => void
+  decideApproval: (id: string, decision: 'approved' | 'rejected', person: Person, comment: string) => void
   addVacancy: (input: NewVacancy) => Vacancy
   updateVacancy: (id: string, changes: Partial<Vacancy>) => void
   createBatch: (input: NewBatch) => Promise<BatchResult>
@@ -76,6 +109,7 @@ interface StoreValue extends Snapshot {
   reevaluate: (ids: string[]) => number
   toggleSelected: (candidateId: string) => void
   closeCollection: (vacancyId: string) => Interview | null
+  addToPipeline: (vacancyId: string, candidateIds: string[]) => Interview | null
   saveScorecard: (interviewId: string, stageId: string, ownerId: string | null, createdBy: string, criteria: Criterion[]) => void
   saveScore: (input: ScoreInput) => void
   decide: (interviewId: string, candidateId: string, action: 'pass' | 'reject', stageCount: number) => void
@@ -90,6 +124,7 @@ const collectionNames: Record<SnapshotKey, string> = {
   interviews: 'interviews',
   scorecards: 'scorecards',
   interviewScores: 'interview_scores',
+  approvals: 'approvals',
 }
 
 const snapshotKeys = Object.keys(collectionNames) as SnapshotKey[]
@@ -103,9 +138,14 @@ const emptySnapshot: Snapshot = {
   interviews: [],
   scorecards: [],
   interviewScores: [],
+  approvals: [],
 }
 
 const StoreContext = createContext<StoreValue | null>(null)
+
+export function nowIso() {
+  return new Date().toISOString()
+}
 
 export function todayIso() {
   const now = new Date()
@@ -125,6 +165,16 @@ export function newShareToken() {
 
 export function shareUrl(token: string) {
   return `${window.location.origin}/apply/${token}`
+}
+
+function emptyInterviewFor(vacancy: Vacancy): Interview {
+  return {
+    id: `int-${vacancy.id.replace(/^vac-/, '')}`,
+    vacancy_id: vacancy.id,
+    created_at: todayIso(),
+    candidate_ids: [],
+    progress: {},
+  }
 }
 
 type Row = { id: string; created_at?: string }
@@ -295,6 +345,17 @@ export function RecruiteOneStoreProvider({ children }: { children: ReactNode }) 
   }, [refresh])
 
   useEffect(() => {
+    if (status !== 'ready') return
+    update((current) => {
+      const missing = current.vacancies.filter(
+        (vacancy) => Boolean(vacancy.pipeline) && !current.interviews.some((interview) => interview.vacancy_id === vacancy.id),
+      )
+      if (missing.length === 0) return current
+      return { ...current, interviews: [...missing.map(emptyInterviewFor), ...current.interviews] }
+    })
+  }, [status, snapshot.vacancies, snapshot.interviews, update])
+
+  useEffect(() => {
     void refresh(true)
     const timer = window.setInterval(() => {
       if (loaded.current && !document.hidden) void refresh(false)
@@ -395,13 +456,94 @@ export function RecruiteOneStoreProvider({ children }: { children: ReactNode }) 
   const deleteJd = useCallback((id: string) => setDeleted(id, true), [setDeleted])
   const restoreJd = useCallback((id: string) => setDeleted(id, false), [setDeleted])
 
+  const addApproval = useCallback(
+    (input: NewApproval, submit: boolean) => {
+      const created: HiringApproval = {
+        id: newId('apr'),
+        position_name: input.position_name.trim(),
+        recruiter_name: input.recruiter_name.trim(),
+        level: input.level,
+        department: input.department,
+        jd_details: input.jd_details.trim(),
+        reason: input.reason.trim(),
+        position_value: input.position_value.trim(),
+        steps: buildSteps(input.department, input.head_id),
+        status: submit ? 'pending' : 'draft',
+        created_by: input.created_by,
+        submitted_at: submit ? nowIso() : null,
+        completed_at: null,
+        created_at: todayIso(),
+        updated_at: todayIso(),
+      }
+      update((current) => ({ ...current, approvals: [created, ...current.approvals] }))
+      return created
+    },
+    [update],
+  )
+
+  const updateApproval = useCallback(
+    (id: string, input: NewApproval, submit: boolean) => {
+      update((current) => ({
+        ...current,
+        approvals: current.approvals.map((approval) =>
+          approval.id === id && approval.status === 'draft'
+            ? {
+                ...approval,
+                position_name: input.position_name.trim(),
+                recruiter_name: input.recruiter_name.trim(),
+                level: input.level,
+                department: input.department,
+                jd_details: input.jd_details.trim(),
+                reason: input.reason.trim(),
+                position_value: input.position_value.trim(),
+                steps: buildSteps(input.department, input.head_id),
+                status: submit ? ('pending' as const) : ('draft' as const),
+                submitted_at: submit ? nowIso() : null,
+                updated_at: todayIso(),
+              }
+            : approval,
+        ),
+      }))
+    },
+    [update],
+  )
+
+  const deleteApproval = useCallback(
+    (id: string) => {
+      update((current) => ({
+        ...current,
+        approvals: current.approvals.filter((approval) => approval.id !== id || approval.status !== 'draft'),
+      }))
+    },
+    [update],
+  )
+
+  const decideApproval = useCallback(
+    (id: string, decision: 'approved' | 'rejected', person: Person, comment: string) => {
+      update((current) => ({
+        ...current,
+        approvals: current.approvals.map((approval) => {
+          if (approval.id !== id || !canDecide(approval, person)) return approval
+          const index = currentStepIndex(approval)
+          const steps = approval.steps.map((step, position) =>
+            position === index ? { ...step, decision, decided_by: person.id, decided_at: nowIso(), comment: comment.trim() } : step,
+          )
+          const status = decision === 'rejected' ? 'rejected' : steps.every((step) => step.decision === 'approved') ? 'approved' : 'pending'
+          return { ...approval, steps, status, completed_at: status === 'pending' ? null : nowIso(), updated_at: todayIso() }
+        }),
+      }))
+    },
+    [update],
+  )
+
   const addVacancy = useCallback(
     (input: NewVacancy) => {
       const created: Vacancy = {
         id: newId('vac'),
         title: input.title,
         jd_id: input.jd.id,
-        department: input.jd.sector,
+        approval_id: input.approval.id,
+        department: input.approval.department,
         location: '',
         employment_type: 'full_time',
         openings: 1,
@@ -485,9 +627,35 @@ export function RecruiteOneStoreProvider({ children }: { children: ReactNode }) 
       const candidate = latest.current.candidates.find((item) => item.id === candidateId)
       const vacancy = latest.current.vacancies.find((item) => candidate?.vacancy_ids.includes(item.id))
       if (!candidate || vacancy?.collection_closed_at) return
+      if (latest.current.interviews.some((interview) => interview.progress[candidateId])) return
       patchCandidate(candidateId, { selected: !candidate.selected })
     },
     [patchCandidate],
+  )
+
+  const addToPipeline = useCallback(
+    (vacancyId: string, candidateIds: string[]) => {
+      const vacancy = latest.current.vacancies.find((item) => item.id === vacancyId)
+      if (!vacancy || !vacancy.pipeline) return null
+      const existing = latest.current.interviews.find((item) => item.vacancy_id === vacancyId)
+      const base = existing ?? emptyInterviewFor(vacancy)
+      const fresh = candidateIds.filter(
+        (id) => !base.progress[id] && latest.current.candidates.some((candidate) => candidate.id === id && candidate.vacancy_ids.includes(vacancyId)),
+      )
+      if (fresh.length === 0) return null
+      const interview: Interview = {
+        ...base,
+        candidate_ids: [...base.candidate_ids, ...fresh],
+        progress: { ...base.progress, ...Object.fromEntries(fresh.map((id) => [id, { stage_index: 0, outcome: 'active' as const }])) },
+      }
+      update((current) => ({
+        ...current,
+        interviews: existing ? current.interviews.map((item) => (item.id === existing.id ? interview : item)) : [interview, ...current.interviews],
+        candidates: current.candidates.map((candidate) => (fresh.includes(candidate.id) ? { ...candidate, selected: true } : candidate)),
+      }))
+      return interview
+    },
+    [update],
   )
 
   const closeCollection = useCallback(
@@ -496,16 +664,19 @@ export function RecruiteOneStoreProvider({ children }: { children: ReactNode }) 
       if (!vacancy || !vacancy.pipeline || vacancy.collection_closed_at) return null
       const chosen = latest.current.candidates.filter((candidate) => candidate.selected && candidate.vacancy_ids.includes(vacancyId))
       if (chosen.length === 0) return null
+      const existing = latest.current.interviews.find((item) => item.vacancy_id === vacancyId)
+      const base = existing ?? emptyInterviewFor(vacancy)
+      const fresh = chosen.filter((candidate) => !base.progress[candidate.id])
       const interview: Interview = {
-        id: newId('int'),
-        vacancy_id: vacancyId,
-        created_at: todayIso(),
-        candidate_ids: chosen.map((candidate) => candidate.id),
-        progress: Object.fromEntries(chosen.map((candidate) => [candidate.id, { stage_index: 0, outcome: 'active' as const }])),
+        ...base,
+        candidate_ids: [...base.candidate_ids, ...fresh.map((candidate) => candidate.id)],
+        progress: { ...base.progress, ...Object.fromEntries(fresh.map((candidate) => [candidate.id, { stage_index: 0, outcome: 'active' as const }])) },
       }
       update((current) => ({
         ...current,
-        interviews: [interview, ...current.interviews],
+        interviews: existing
+          ? current.interviews.map((item) => (item.id === existing.id ? interview : item))
+          : [interview, ...current.interviews],
         vacancies: current.vacancies.map((item) => (item.id === vacancyId ? { ...item, collection_closed_at: todayIso() } : item)),
       }))
       return interview
@@ -515,6 +686,7 @@ export function RecruiteOneStoreProvider({ children }: { children: ReactNode }) 
 
   const saveScorecard = useCallback(
     (interviewId: string, stageId: string, ownerId: string | null, createdBy: string, criteria: Criterion[]) => {
+      if (ownerId === null && !isHrPerson(personById(createdBy))) return
       update((current) => {
         const existing = current.scorecards.find(
           (card) => card.interview_id === interviewId && card.stage_id === stageId && card.interviewer_id === ownerId,
@@ -615,6 +787,10 @@ export function RecruiteOneStoreProvider({ children }: { children: ReactNode }) 
       updateJd,
       deleteJd,
       restoreJd,
+      addApproval,
+      updateApproval,
+      deleteApproval,
+      decideApproval,
       addVacancy,
       updateVacancy,
       createBatch,
@@ -622,6 +798,7 @@ export function RecruiteOneStoreProvider({ children }: { children: ReactNode }) 
       reevaluate,
       toggleSelected,
       closeCollection,
+      addToPipeline,
       saveScorecard,
       saveScore,
       decide,
@@ -639,6 +816,10 @@ export function RecruiteOneStoreProvider({ children }: { children: ReactNode }) 
       updateJd,
       deleteJd,
       restoreJd,
+      addApproval,
+      updateApproval,
+      deleteApproval,
+      decideApproval,
       addVacancy,
       updateVacancy,
       createBatch,
@@ -646,6 +827,7 @@ export function RecruiteOneStoreProvider({ children }: { children: ReactNode }) 
       reevaluate,
       toggleSelected,
       closeCollection,
+      addToPipeline,
       saveScorecard,
       saveScore,
       decide,

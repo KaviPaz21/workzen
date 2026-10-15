@@ -44,7 +44,8 @@ def test_decompose_reports_ai_failure_as_bad_gateway():
 
 
 def test_decompose_returns_503_when_foundry_is_not_configured():
-    response = TestClient(create_app(Settings(_env_file=None))).post(
-        f"{BASE}/jds/decompose", json={"name": "Backend", "text": "Python developer"}
-    )
+    unconfigured = Settings(_env_file=None)
+    app = create_app(unconfigured)
+    app.dependency_overrides[deps.get_settings] = lambda: unconfigured
+    response = TestClient(app).post(f"{BASE}/jds/decompose", json={"name": "Backend", "text": "Python developer"})
     assert response.status_code == 503

@@ -26,6 +26,7 @@ export interface JobDescription {
   raw_text: string
   buckets: Buckets
   weights: Weights
+  approval_id?: string | null
   deleted: boolean
   created_at: string
   updated_at: string
@@ -63,6 +64,7 @@ export interface Vacancy {
   id: string
   title: string
   jd_id: string
+  approval_id?: string | null
   department: string
   location: string
   employment_type: EmploymentType
@@ -163,6 +165,38 @@ export interface InterviewScore {
   candidate_id: string
   values: Record<string, number>
   notes: string
+  updated_at: string
+}
+
+export type ApprovalStepKey = 'department_head' | 'finance' | 'hr' | 'management'
+export type StepDecision = 'pending' | 'approved' | 'rejected'
+export type ApprovalStatus = 'draft' | 'pending' | 'approved' | 'rejected'
+
+export interface ApprovalStep {
+  key: ApprovalStepKey
+  department: string
+  approver_id: string | null
+  decision: StepDecision
+  decided_by: string | null
+  decided_at: string | null
+  comment: string
+}
+
+export interface HiringApproval {
+  id: string
+  position_name: string
+  recruiter_name: string
+  level: Level
+  department: string
+  jd_details: string
+  reason: string
+  position_value: string
+  steps: ApprovalStep[]
+  status: ApprovalStatus
+  created_by: string
+  submitted_at: string | null
+  completed_at: string | null
+  created_at: string
   updated_at: string
 }
 

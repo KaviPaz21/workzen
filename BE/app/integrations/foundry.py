@@ -23,6 +23,44 @@ def get_chat_model() -> AzureChatOpenAI:
 
 
 @lru_cache
+def get_assistant_model(deployment: str, effort: str) -> AzureChatOpenAI:
+    settings = get_settings()
+    return AzureChatOpenAI(
+        azure_endpoint=settings.foundry_endpoint,
+        api_key=settings.foundry_api_key.get_secret_value(),
+        api_version=settings.foundry_api_version,
+        azure_deployment=deployment,
+        reasoning_effort=effort,
+        streaming=True,
+    )
+
+
+@lru_cache
+def get_coworker_model(deployment: str, effort: str) -> AzureChatOpenAI:
+    settings = get_settings()
+    return AzureChatOpenAI(
+        azure_endpoint=settings.foundry_endpoint,
+        api_key=settings.foundry_api_key.get_secret_value(),
+        api_version=settings.foundry_api_version,
+        azure_deployment=deployment,
+        use_responses_api=True,
+        reasoning={"effort": effort, "summary": None},
+        streaming=True,
+    )
+
+
+def get_scoring_model(seed: int) -> AzureChatOpenAI:
+    settings = get_settings()
+    return AzureChatOpenAI(
+        azure_endpoint=settings.foundry_endpoint,
+        api_key=settings.foundry_api_key.get_secret_value(),
+        api_version=settings.foundry_api_version,
+        azure_deployment=settings.foundry_chat_deployment,
+        seed=seed,
+    )
+
+
+@lru_cache
 def get_quality_evaluators() -> dict:
     settings = get_settings()
     model_config = AzureOpenAIModelConfiguration(

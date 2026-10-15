@@ -22,8 +22,8 @@ export function CvPreview({ candidate }: { candidate: Candidate }) {
   return (
     <div className="cv-missing">
       <FileQuestion aria-hidden="true" />
-      <p className="cell-primary">The original file is not stored for this candidate.</p>
-      <p className="wizard__muted">This is a sample record, so only its profile is available.</p>
+      <p className="cell-primary">The CV file could not be loaded.</p>
+      <p className="wizard__muted">Check the connection to the server. Only the candidate profile is shown for now.</p>
       <dl className="detail-list">
         <div>
           <dt>Current title</dt>

@@ -38,7 +38,7 @@ def test_snapshot_is_empty_without_records(client):
     assert response.status_code == 200
     body = response.json()
     assert body["jds"] == []
-    assert set(body) == {"jds", "vacancies", "candidates", "batches", "interviews", "scorecards", "interview_scores"}
+    assert set(body) == {"jds", "vacancies", "candidates", "batches", "interviews", "scorecards", "interview_scores", "approvals"}
 
 
 def test_save_list_and_delete_record(client):
@@ -134,5 +134,5 @@ def test_stored_cv_scoring(client):
     jd = {"name": "Backend", "role": "Backend Engineer", "sector": "IT", "level": "senior", "buckets": {"technical_skills": ["Python"]}, "weights": {}}
     response = client.post(f"{BASE}/scoring/candidates/{candidate_id}", json=jd)
     assert response.status_code == 200
-    assert response.json()["overall_score"] == 80
+    assert response.json()["overall_score"] == 100
     assert client.post(f"{BASE}/scoring/candidates/cand-none", json=jd).status_code == 404

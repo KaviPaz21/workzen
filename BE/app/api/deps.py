@@ -1,13 +1,20 @@
-﻿from azure.cosmos.aio import DatabaseProxy
-from fastapi import Depends, HTTPException, Request
+import re
 
+from azure.cosmos.aio import DatabaseProxy
+from fastapi import Depends, Header, HTTPException, Request
+
+from app.agents.assistant.coworker_graph import get_coworker_graph
+from app.agents.assistant.graph import get_assistant_graph
 from app.agents.recruiteone.cv_scorer import get_cv_scoring_graph
 from app.agents.recruiteone.graph import get_evaluation_graph
 from app.agents.recruiteone.jd_decomposer import get_jd_decomposition_graph
 from app.core.config import Settings, get_settings
 from app.integrations.blob import BlobStorage
+from app.repositories.chat_session_repository import ChatSessionRepository
 from app.repositories.cosmos_repository import CosmosRepository
 from app.repositories.record_repository import RecordRepository
+from app.services.assistant.chat_service import ChatService
+from app.services.assistant.knowledge_service import KnowledgeIndex
 from app.services.base import ResourceService
 from app.services.recruiteone.jd_service import JdDecomposerService, JdService
 from app.services.recruiteone.cv_file_service import CvFileService
@@ -141,6 +148,46 @@ def get_public_vacancy_service(
     files: CvFileService = Depends(get_cv_file_service),
 ) -> PublicVacancyService:
     return PublicVacancyService(repository=repository, workspace=workspace, files=files)
+
+
+USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def get_user_id(x_user_id: str = Header(default="anonymous")) -> str:
+    if not USER_ID_PATTERN.match(x_user_id):
+        raise HTTPException(status_code=400, detail="The user id is not valid")
+    return x_user_id
+
+
+def get_chat_session_repository(
+    database: DatabaseProxy = Depends(get_database), settings: Settings = Depends(get_settings)
+) -> ChatSessionRepository:
+    return ChatSessionRepository(database.get_container_client(settings.cosmos_container_records))
+
+
+def get_knowledge_index(request: Request) -> KnowledgeIndex:
+    return request.app.state.knowledge_index
+
+
+def get_chat_service(
+    request: Request,
+    sessions: ChatSessionRepository = Depends(get_chat_session_repository),
+    knowledge: KnowledgeIndex = Depends(get_knowledge_index),
+    settings: Settings = Depends(get_settings),
+    graph=Depends(get_assistant_graph),
+    coworker_graph=Depends(get_coworker_graph),
+) -> ChatService:
+    if not settings.foundry_configured:
+        raise HTTPException(status_code=503, detail="Azure AI Foundry is not configured")
+    return ChatService(
+        sessions=sessions,
+        graph=graph,
+        knowledge=knowledge,
+        knowledge_storage=request.app.state.knowledge_storage,
+        models=settings.assistant_model_list,
+        coworker_graph=coworker_graph,
+        coworker_runs=request.app.state.coworker_runs,
+    )
 
 
 def get_stored_scoring_service(

@@ -1,4 +1,8 @@
-import type { Criterion, Interview, InterviewScore, Scorecard } from '../types'
+import type { Candidate, Criterion, Interview, InterviewScore, Scorecard } from '../types'
+
+export function pooledCandidates(vacancyId: string, candidates: Candidate[]) {
+  return candidates.filter((candidate) => candidate.vacancy_ids.includes(vacancyId) && candidate.batch_id !== null)
+}
 
 export function totalMax(criteria: Criterion[]) {
   return criteria.reduce((sum, criterion) => sum + criterion.max_score, 0)
@@ -34,7 +38,9 @@ export function statusFor(interview: Interview, candidateId: string, stageIndex:
 }
 
 export function currentStageIndex(interview: Interview, stageCount: number) {
-  const active = Object.values(interview.progress).filter((progress) => progress.outcome === 'active')
+  const all = Object.values(interview.progress)
+  if (all.length === 0) return 0
+  const active = all.filter((progress) => progress.outcome === 'active')
   if (active.length > 0) return Math.max(...active.map((progress) => progress.stage_index))
   return Math.max(stageCount - 1, 0)
 }

@@ -1,5 +1,5 @@
-import { Check } from 'lucide-react'
-import { useState } from 'react'
+import { Check, Maximize2, Minimize2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { Avatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
 import { ResizableColumns } from '@/components/ui/ResizableColumns'
@@ -15,14 +15,44 @@ interface ScoreCandidatesProps {
   stage: PipelineStage
   stageIndex: number
   candidates: Candidate[]
+  collectionClosed: boolean
   onCreateScorecard: () => void
 }
 
-export function ScoreCandidates({ interview, stage, stageIndex, candidates, onCreateScorecard }: ScoreCandidatesProps) {
+export function ScoreCandidates({ interview, stage, stageIndex, candidates, collectionClosed, onCreateScorecard }: ScoreCandidatesProps) {
   const { user } = useCurrentUser()
   const { scorecards, interviewScores } = useStore()
   const [candidateId, setCandidateId] = useState<string | null>(null)
   const [cardId, setCardId] = useState<string | null>(null)
+  const [fullScreen, setFullScreen] = useState(false)
+  const workspaceRef = useRef<HTMLDivElement>(null)
+
+  function enterFullScreen() {
+    setFullScreen(true)
+    workspaceRef.current?.requestFullscreen?.().catch(() => undefined)
+  }
+
+  function leaveFullScreen() {
+    setFullScreen(false)
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
+  }
+
+  useEffect(() => {
+    if (!fullScreen) return
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') setFullScreen(false)
+    }
+    function onFullscreenChange() {
+      if (!document.fullscreenElement) setFullScreen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('fullscreenchange', onFullscreenChange)
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
+    }
+  }, [fullScreen])
 
   const mine = personalCard(scorecards, interview.id, stage.id, user.id)
   const common = commonCard(scorecards, interview.id, stage.id)
@@ -55,7 +85,13 @@ export function ScoreCandidates({ interview, stage, stageIndex, candidates, onCr
     </>
   )
 
-  const center = candidate ? <CvPreview key={candidate.id} candidate={candidate} /> : <p className="wizard__muted">No candidate selected.</p>
+  const center = candidate ? (
+    <CvPreview key={candidate.id} candidate={candidate} />
+  ) : (
+    <p className="wizard__muted">
+      {collectionClosed ? 'No candidate selected.' : 'Candidates appear here once HR sends them to the pipeline or closes the CV collection. Until then, read the CVs under Job & CVs.'}
+    </p>
+  )
 
   const right = (
     <>
@@ -89,7 +125,11 @@ export function ScoreCandidates({ interview, stage, stageIndex, candidates, onCr
           {candidate ? (
             <ScoreForm key={`${candidate.id}-${card.id}`} interview={interview} stage={stage} stageIndex={stageIndex} candidate={candidate} card={card} entry={entry} />
           ) : (
-            <p className="wizard__muted">Pick a candidate to score.</p>
+            <p className="wizard__muted">
+              {collectionClosed
+                ? 'Pick a candidate to score.'
+                : `Your scorecard is ready: ${card.criteria.length} ${card.criteria.length === 1 ? 'item' : 'items'}, ${totalMax(card.criteria)} points in total. Scoring opens when candidates reach this stage.`}
+            </p>
           )}
         </>
       )}
@@ -97,14 +137,35 @@ export function ScoreCandidates({ interview, stage, stageIndex, candidates, onCr
   )
 
   return (
-    <ResizableColumns
-      storageKey="workzen.score-panes"
-      leftLabel="Resize candidate list"
-      rightLabel="Resize scorecard"
-      left={left}
-      center={center}
-      right={right}
-    />
+    <div ref={workspaceRef} className={`score-workspace${fullScreen ? ' score-workspace--full' : ''}`}>
+      <div className="score-toolbar">
+        <p className="score-toolbar__title">
+          <strong>{stage.name}</strong>
+          <span className="cell-secondary">
+            {' '}
+            · {candidates.length} {candidates.length === 1 ? 'candidate' : 'candidates'}
+            {candidate ? ` · now scoring ${candidate.full_name}` : ''}
+          </span>
+        </p>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={fullScreen ? <Minimize2 /> : <Maximize2 />}
+          aria-pressed={fullScreen}
+          onClick={() => (fullScreen ? leaveFullScreen() : enterFullScreen())}
+        >
+          {fullScreen ? 'Exit full screen' : 'Full screen'}
+        </Button>
+      </div>
+      <ResizableColumns
+        storageKey="workzen.score-panes"
+        leftLabel="Resize candidate list"
+        rightLabel="Resize scorecard"
+        left={left}
+        center={center}
+        right={right}
+      />
+    </div>
   )
 }
 

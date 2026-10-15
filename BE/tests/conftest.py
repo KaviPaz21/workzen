@@ -9,7 +9,7 @@ from app.core.config import Settings
 from app.main import create_app
 from app.schemas.recruiteone.evaluation import MatchResult, QualityScores
 from app.schemas.recruiteone.jd import Buckets, JdDecomposition
-from app.schemas.recruiteone.scoring import BENCHMARK_LABELS, BenchmarkLlmResult, CvScoringLlmOutput
+from app.schemas.recruiteone.scoring import BENCHMARK_LABELS, BenchmarkLlmResult, CvScoringLlmOutput, RequirementCheck
 from app.services.recruiteone.cv_scoring_service import CvScoringService
 from app.services.recruiteone.jd_service import JdDecomposerService
 
@@ -103,8 +103,19 @@ class FakeScoringGraph:
     async def ainvoke(self, state):
         from app.agents.recruiteone.cv_scorer import finalize_score
 
+        jd = state["jd"]
         output = CvScoringLlmOutput(
-            benchmarks=[BenchmarkLlmResult(key=key, score=80, reasoning=f"Evidence found for {label}.") for key, label in BENCHMARK_LABELS.items()],
+            benchmarks=[
+                BenchmarkLlmResult(
+                    key=key,
+                    checks=[RequirementCheck(requirement=item, matched=True) for item in getattr(jd.buckets, key)],
+                    alternatives=[],
+                    required_months=12,
+                    available_months=12,
+                    reasoning=f"Evidence found for {label}.",
+                )
+                for key, label in BENCHMARK_LABELS.items()
+            ],
             summary="Good overall fit.",
         )
         return finalize_score({"jd": state["jd"], "llm_output": output})

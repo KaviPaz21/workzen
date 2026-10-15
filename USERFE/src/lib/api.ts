@@ -16,6 +16,10 @@ async function request(path: string, init: RequestInit): Promise<Response> {
   return response
 }
 
+export function apiRequest(path: string, init: RequestInit): Promise<Response> {
+  return request(path, init)
+}
+
 function jsonInit(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }

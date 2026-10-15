@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { AppShell } from '@/layouts/AppShell'
 import { PageLayout } from '@/layouts/PageLayout'
+import { AssistantPage } from '@/modules/assistant/pages/AssistantPage'
+import { ApprovalsPage } from '@/modules/recruiteone/pages/ApprovalsPage'
 import { CvPoolPage } from '@/modules/recruiteone/pages/CvPoolPage'
 import { DashboardPage } from '@/modules/recruiteone/pages/DashboardPage'
 import { InterviewPage } from '@/modules/recruiteone/pages/InterviewPage'
@@ -25,6 +27,7 @@ export function AppRoutes() {
       <Route path="apply/:token" element={<ApplyPage />} />
 
       <Route element={<AppShell />}>
+        <Route path="assistant" element={<AssistantPage />} />
         <Route element={<PageLayout />}>
           <Route index element={<WorkZenHomePage />} />
           <Route path="hr" element={<DepartmentPage departmentId="hr" />} />
@@ -40,6 +43,7 @@ export function AppRoutes() {
             <Route path="*" element={<NotFoundPage />} />
           </Route>
           <Route element={<PageLayout fill />}>
+            <Route path="approvals" element={<ApprovalsPage />} />
             <Route path="jds" element={<JdsPage />} />
             <Route path="vacancies" element={<VacanciesPage />} />
             <Route path="cv-pool" element={<CvPoolPage />} />

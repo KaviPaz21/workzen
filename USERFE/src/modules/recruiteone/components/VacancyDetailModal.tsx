@@ -1,21 +1,24 @@
-import { Upload } from 'lucide-react'
+import { CircleCheck, RotateCcw, Upload } from 'lucide-react'
 import { useState } from 'react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
 import { MeterBar } from '@/components/ui/MeterBar'
 import { Modal } from '@/components/ui/Modal'
 import { Tabs } from '@/components/ui/Tabs'
 import { formatDate, titleCase } from '@/lib/format'
 import { bucketDefinitions } from '../data/buckets'
-import { vacancyStage } from '../data/stage'
+import { collectionState, vacancyStage } from '../data/stage'
+import { approvalReference } from '../services/approvalMath'
 import { useStore } from '../state/RecruiteOneStore'
 import type { Vacancy } from '../types'
-import { VacancyStatusBadge } from './StatusBadges'
+import { ApprovalOverview } from './approval/ApprovalViews'
+import { vacancyStatusLabel } from './StatusBadges'
 import { VacancyCvsPanel } from './VacancyCvsPanel'
 import { VacancyPipelineTab } from './VacancyPipelineTab'
 import { ShareLink } from './ShareLink'
 
-type Tab = 'overview' | 'jd' | 'weights' | 'pipeline' | 'cvs'
+type Tab = 'overview' | 'jd' | 'weights' | 'pipeline' | 'cvs' | 'approval'
 
 interface VacancyDetailModalProps {
   vacancy: Vacancy
@@ -25,9 +28,11 @@ interface VacancyDetailModalProps {
 }
 
 export function VacancyDetailModal({ vacancy, onClose, onUpload, initialBatchId = null }: VacancyDetailModalProps) {
-  const { jds } = useStore()
+  const { jds, approvals, updateVacancy } = useStore()
   const [tab, setTab] = useState<Tab>(initialBatchId ? 'cvs' : 'overview')
+  const [confirmClose, setConfirmClose] = useState(false)
   const jd = jds.find((item) => item.id === vacancy.jd_id)
+  const approval = approvals.find((item) => item.id === vacancy.approval_id)
   const stage = vacancyStage(vacancy)
 
   return (
@@ -39,10 +44,20 @@ export function VacancyDetailModal({ vacancy, onClose, onUpload, initialBatchId 
       closeOnBackdrop={false}
       footer={
         <>
+          {vacancy.status === 'closed' ? (
+            <Button variant="secondary" icon={<RotateCcw />} onClick={() => updateVacancy(vacancy.id, { status: 'open' })}>
+              Reopen vacancy
+            </Button>
+          ) : (
+            <Button variant="secondary" icon={<CircleCheck />} onClick={() => setConfirmClose(true)}>
+              Close vacancy
+            </Button>
+          )}
+          <span className="modal__footer-spacer" />
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
-          <Button icon={<Upload />} disabled={vacancy.collection_closed_at !== null} onClick={() => onUpload(vacancy)}>
+          <Button icon={<Upload />} disabled={vacancy.collection_closed_at !== null || vacancy.status === 'closed'} onClick={() => onUpload(vacancy)}>
             Upload CVs
           </Button>
         </>
@@ -58,14 +73,15 @@ export function VacancyDetailModal({ vacancy, onClose, onUpload, initialBatchId 
           { value: 'weights', label: 'Weights' },
           { value: 'pipeline', label: 'Pipeline' },
           { value: 'cvs', label: `CVs (${vacancy.candidate_count})` },
+          { value: 'approval', label: 'Approval' },
         ]}
       >
         {tab === 'overview' && (
           <div className="form-stack">
             <div className="stat-grid">
               <div className="stat-card">
-                <div className="stat-card__value">{vacancy.openings}</div>
-                <div className="stat-card__label">Openings</div>
+                <div className="stat-card__value">{vacancyStatusLabel(vacancy.status)}</div>
+                <div className="stat-card__label">Status</div>
               </div>
               <div className="stat-card">
                 <div className="stat-card__value">{vacancy.candidate_count}</div>
@@ -81,12 +97,6 @@ export function VacancyDetailModal({ vacancy, onClose, onUpload, initialBatchId 
               </div>
             </div>
             <dl className="detail-list detail-list--grid">
-              <div>
-                <dt>Status</dt>
-                <dd>
-                  <VacancyStatusBadge status={vacancy.status} />
-                </dd>
-              </div>
               <div>
                 <dt>Stage</dt>
                 <dd>
@@ -110,8 +120,18 @@ export function VacancyDetailModal({ vacancy, onClose, onUpload, initialBatchId 
                 <dd>{vacancy.pipeline ? vacancy.pipeline.name : 'Not scheduled'}</dd>
               </div>
               <div>
+                <dt>Hiring approval</dt>
+                <dd>{approval ? `${approval.position_name} · ${approvalReference(approval)}` : 'None'}</dd>
+              </div>
+              <div>
                 <dt>CV collection</dt>
-                <dd>{vacancy.collection_closed_at ? `Closed ${formatDate(vacancy.collection_closed_at)}` : 'Open'}</dd>
+                <dd>
+                  {vacancy.collection_closed_at
+                    ? `Closed ${formatDate(vacancy.collection_closed_at)}`
+                    : collectionState(vacancy) === 'ended'
+                      ? `Ended ${formatDate(vacancy.closing_date)}, not closed by HR yet`
+                      : 'Open'}
+                </dd>
               </div>
             </dl>
             <div>
@@ -173,7 +193,27 @@ export function VacancyDetailModal({ vacancy, onClose, onUpload, initialBatchId 
         {tab === 'pipeline' && <VacancyPipelineTab vacancy={vacancy} />}
 
         {tab === 'cvs' && <VacancyCvsPanel vacancy={vacancy} jd={jd} initialBatchId={initialBatchId} onUpload={onUpload} />}
+
+        {tab === 'approval' &&
+          (approval ? (
+            <ApprovalOverview approval={approval} />
+          ) : (
+            <p className="wizard__muted">This vacancy was created before hiring approvals existed, so it has no approval linked.</p>
+          ))}
       </Tabs>
+
+      <ConfirmModal
+        open={confirmClose}
+        title={`Close "${vacancy.title}"?`}
+        message="Close the vacancy once the position is filled. The linked hiring approval will be marked Finished and no more CVs can be added."
+        confirmLabel="Close vacancy"
+        cancelLabel="Keep it open"
+        onCancel={() => setConfirmClose(false)}
+        onConfirm={() => {
+          updateVacancy(vacancy.id, { status: 'closed' })
+          setConfirmClose(false)
+        }}
+      />
     </Modal>
   )
 }

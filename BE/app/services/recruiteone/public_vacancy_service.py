@@ -1,4 +1,5 @@
-﻿from dataclasses import dataclass
+﻿import time
+from dataclasses import dataclass
 from uuid import uuid4
 
 from app.core.errors import InvalidRequestError, NotFoundError
@@ -52,7 +53,7 @@ class PublicVacancyService:
         vacancy, _ = await self.find(token)
         if not is_accepting(vacancy):
             raise InvalidRequestError("This vacancy is no longer accepting applications")
-        candidate_id = f"cand-{uuid4().hex[:8]}"
+        candidate_id = f"cand-{int(time.time() * 1000):x}{uuid4().hex[:4]}"
         await self.files.store(candidate_id, file_name, data, content_type)
         record = {
             "full_name": full_name,
