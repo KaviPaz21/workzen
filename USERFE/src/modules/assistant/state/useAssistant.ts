@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchOptions, fetchSession, fetchSessions, removeSession, streamChat, submitActionResult } from '../services/assistantApi'
+import { asksFirst, type PermissionMode } from '../lib/permissions'
 import { runCoworkerAction } from '../services/coworkerClient'
 import type { ActionOutcome, AssistantOptions, ChatMessage, ChatMode, Effort, LiveAction, SessionSummary } from '../types'
 
@@ -41,11 +42,15 @@ function newest(sessions: SessionSummary[]) {
 interface CoworkerAccess {
   token: string | null
   active: boolean
+  mode: PermissionMode
+  supported: string[] | null
 }
+
+const outdatedMessage = 'The Co-worker app on this computer is out of date and cannot do this step. Tell the user to update it: open Co-worker settings in the AI Assistant, download the update and open it. Then stop.'
 
 const deniedOutcome: ActionOutcome = { ok: false, denied: true, error: 'The user denied this action' }
 
-export function useAssistant(userId: string, coworker: CoworkerAccess = { token: null, active: false }) {
+export function useAssistant(userId: string, coworker: CoworkerAccess = { token: null, active: false, mode: 'ask_all', supported: null }) {
   const [options, setOptions] = useState<AssistantOptions | null>(null)
   const [optionsError, setOptionsError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionSummary[]>([])
@@ -58,9 +63,14 @@ export function useAssistant(userId: string, coworker: CoworkerAccess = { token:
   const [error, setError] = useState<string | null>(null)
   const [preferences, setPreferences] = useState<Preferences>(loadPreferences)
   const [liveActions, setLiveActions] = useState<LiveAction[]>([])
+  const [skill, setSkill] = useState<string | null>(null)
   const requestId = useRef(0)
   const runId = useRef<string | null>(null)
   const approveAll = useRef(false)
+  const modeRef = useRef<PermissionMode>(coworker.mode)
+  modeRef.current = coworker.mode
+  const supportedRef = useRef<string[] | null>(coworker.supported)
+  supportedRef.current = coworker.supported
 
   const loadOptions = useCallback(async () => {
     try {
@@ -88,6 +98,7 @@ export function useAssistant(userId: string, coworker: CoworkerAccess = { token:
     setError(null)
     setStreaming(false)
     setLiveActions([])
+    setSkill(null)
     setSessionsLoaded(false)
     fetchSessions(userId)
       .then((loaded) => setSessions(newest(loaded)))
@@ -117,6 +128,7 @@ export function useAssistant(userId: string, coworker: CoworkerAccess = { token:
     setMessages([])
     setDraft(null)
     setError(null)
+    setSkill(null)
   }, [streaming])
 
   const openSession = useCallback(
@@ -131,6 +143,7 @@ export function useAssistant(userId: string, coworker: CoworkerAccess = { token:
         setActiveId(session.id)
         setMessages(session.messages)
         setDraft(null)
+        setSkill(null)
       } catch (failure) {
         if (ticket === requestId.current) setError(errorText(failure, 'That chat could not be opened.'))
       } finally {
@@ -175,13 +188,24 @@ export function useAssistant(userId: string, coworker: CoworkerAccess = { token:
   )
 
   const runAction = useCallback(
-    async (action: LiveAction) => {
+    async (action: LiveAction, byUser: boolean) => {
       if (!coworker.token) {
-        await reportOutcome(action.id, { ok: false, error: 'The Co-worker helper is not connected.' })
+        await reportOutcome(action.id, { ok: false, error: 'The Co-worker app is not connected.' })
         return
       }
-      patchAction(action.id, { status: 'running' })
-      const outcome = await runCoworkerAction(coworker.token, action.tool, action.args)
+      if (supportedRef.current && !supportedRef.current.includes(action.tool)) {
+        patchAction(action.id, { status: 'running' })
+        await reportOutcome(action.id, { ok: false, error: outdatedMessage })
+        return
+      }
+      patchAction(action.id, { status: 'running', confirm: undefined })
+      const knownCreate = byUser && (action.risk === 'high' || action.confirm !== undefined)
+      const args = action.tool.startsWith('browser_') && knownCreate ? { ...action.args, allow_create: true } : action.args
+      const outcome = await runCoworkerAction(coworker.token, action.tool, args)
+      if (outcome.needs_approval) {
+        patchAction(action.id, { status: 'awaiting', confirm: outcome.needs_approval.label })
+        return
+      }
       await reportOutcome(action.id, outcome)
     },
     [coworker.token, patchAction, reportOutcome],
@@ -190,7 +214,7 @@ export function useAssistant(userId: string, coworker: CoworkerAccess = { token:
   const approveAction = useCallback(
     (id: string) => {
       const action = liveActions.find((item) => item.id === id)
-      if (action && action.status === 'awaiting') void runAction(action)
+      if (action && action.status === 'awaiting') void runAction(action, true)
     },
     [liveActions, runAction],
   )
@@ -208,16 +232,18 @@ export function useAssistant(userId: string, coworker: CoworkerAccess = { token:
 
   const approveAllActions = useCallback(() => {
     approveAll.current = true
-    liveActions.filter((item) => item.status === 'awaiting').forEach((item) => void runAction(item))
+    liveActions.filter((item) => item.status === 'awaiting' && !asksFirst('allow_all', item.risk) && item.confirm === undefined).forEach((item) => void runAction(item, true))
   }, [liveActions, runAction])
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, startSkill?: string) => {
       const question = text.trim()
       if (!question || streaming || !preferences.model) return
       const tempId = `local-${Date.now()}`
       const ticket = requestId.current
       const useCoworker = coworker.active
+      const chosenSkill = useCoworker ? (startSkill ?? skill) : null
+      if (startSkill) setSkill(startSkill)
       approveAll.current = false
       runId.current = null
       setError(null)
@@ -228,7 +254,7 @@ export function useAssistant(userId: string, coworker: CoworkerAccess = { token:
       try {
         await streamChat(
           userId,
-          { session_id: activeId, message: question, mode: preferences.mode, model: preferences.model, effort: preferences.effort, coworker: useCoworker },
+          { session_id: activeId, message: question, mode: preferences.mode, model: preferences.model, effort: preferences.effort, coworker: useCoworker, skill: chosenSkill },
           (event) => {
             if (ticket !== requestId.current) return
             if (event.type === 'start') {
@@ -239,9 +265,11 @@ export function useAssistant(userId: string, coworker: CoworkerAccess = { token:
             } else if (event.type === 'delta') {
               setDraft((current) => (current ?? '') + event.text)
             } else if (event.type === 'action') {
-              const action: LiveAction = { ...event.action, status: 'awaiting', detail: '' }
+              const unsupported = supportedRef.current !== null && !supportedRef.current.includes(event.action.tool)
+              const automatic = unsupported || !asksFirst(approveAll.current ? 'allow_all' : modeRef.current, event.action.risk)
+              const action: LiveAction = { ...event.action, status: automatic ? 'running' : 'awaiting', detail: '', auto: automatic }
               setLiveActions((current) => [...current, action])
-              if (approveAll.current) void runAction(action)
+              if (automatic) void runAction(action, false)
             } else if (event.type === 'action_result') {
               patchAction(event.id, { status: event.status, detail: event.detail })
             } else if (event.type === 'done') {
@@ -264,7 +292,7 @@ export function useAssistant(userId: string, coworker: CoworkerAccess = { token:
         }
       }
     },
-    [userId, activeId, streaming, preferences, coworker.active, upsertSession, runAction, patchAction],
+    [userId, activeId, streaming, preferences, coworker.active, skill, upsertSession, runAction, patchAction],
   )
   return {
     options,
@@ -275,6 +303,8 @@ export function useAssistant(userId: string, coworker: CoworkerAccess = { token:
     messages,
     draft,
     liveActions,
+    skill,
+    clearSkill: () => setSkill(null),
     approveAction,
     denyAction,
     approveAllActions,

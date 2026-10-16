@@ -10,11 +10,14 @@ from app.config import Settings
 
 MAX_BLOCKS = 400
 MAX_TEXT_CHARACTERS = 20_000
+MAX_TABLE_ROWS = 60
+MAX_TABLE_COLUMNS = 10
 
 
 class Block(BaseModel):
-    type: Literal["heading", "paragraph", "bullet", "numbered"] = "paragraph"
-    text: str = Field(max_length=MAX_TEXT_CHARACTERS)
+    type: Literal["heading", "paragraph", "bullet", "numbered", "table"] = "paragraph"
+    text: str = Field(default="", max_length=MAX_TEXT_CHARACTERS)
+    rows: list[list[str]] = Field(default_factory=list, max_length=MAX_TABLE_ROWS)
 
 
 class WordArgs(BaseModel):
@@ -27,6 +30,23 @@ class WordArgs(BaseModel):
 STYLES = {"bullet": "List Bullet", "numbered": "List Number"}
 
 
+def add_table(document, block: Block) -> None:
+    if not block.rows or not block.rows[0]:
+        raise ActionError("A table block needs rows.")
+    columns = len(block.rows[0])
+    if columns > MAX_TABLE_COLUMNS or any(len(row) != columns for row in block.rows):
+        raise ActionError(f"Every table row must have the same number of cells, at most {MAX_TABLE_COLUMNS}.")
+    table = document.add_table(rows=len(block.rows), cols=columns)
+    table.style = "Table Grid"
+    for number, row in enumerate(block.rows):
+        for column, value in enumerate(row):
+            cell = table.cell(number, column)
+            cell.text = value
+            if number == 0:
+                for run in cell.paragraphs[0].runs:
+                    run.bold = True
+
+
 async def create_word_document(settings: Settings, args: dict) -> dict:
     parsed = WordArgs(**args)
     if not parsed.blocks and not parsed.title:
@@ -37,7 +57,9 @@ async def create_word_document(settings: Settings, args: dict) -> dict:
     if parsed.title:
         document.add_heading(parsed.title, level=0)
     for block in parsed.blocks:
-        if block.type == "heading":
+        if block.type == "table":
+            add_table(document, block)
+        elif block.type == "heading":
             document.add_heading(block.text, level=1)
         elif block.type in STYLES:
             document.add_paragraph(block.text, style=STYLES[block.type])

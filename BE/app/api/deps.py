@@ -187,6 +187,7 @@ def get_chat_service(
         models=settings.assistant_model_list,
         coworker_graph=coworker_graph,
         coworker_runs=request.app.state.coworker_runs,
+        coworker_download_url=settings.coworker_download_url or (f"{settings.api_prefix}/assistant/coworker/installer" if settings.coworker_installer_file else None),
     )
 
 

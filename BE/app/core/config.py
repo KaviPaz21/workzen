@@ -1,4 +1,5 @@
-﻿from functools import lru_cache
+from functools import lru_cache
+from pathlib import Path
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -33,6 +34,8 @@ class Settings(BaseSettings):
     foundry_evaluator_deployment: str = ""
 
     assistant_models: str = ""
+    coworker_download_url: str = ""
+    coworker_installer_path: str = ""
 
     @property
     def cosmos_configured(self) -> bool:
@@ -52,6 +55,13 @@ class Settings(BaseSettings):
         if listed:
             return listed
         return [self.foundry_chat_deployment] if self.foundry_chat_deployment else []
+
+    @property
+    def coworker_installer_file(self) -> Path | None:
+        if not self.coworker_installer_path:
+            return None
+        path = Path(self.coworker_installer_path).expanduser()
+        return path if path.is_file() else None
 
     @property
     def max_upload_bytes(self) -> int:

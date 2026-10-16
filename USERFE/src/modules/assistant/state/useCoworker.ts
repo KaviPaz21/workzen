@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { checkCoworker, type CoworkerLink, type CoworkerStatus } from '../services/coworkerClient'
+import { defaultPermissionMode, isPermissionMode, type PermissionMode } from '../lib/permissions'
+import { checkCoworker, pairCoworker, unpairCoworker, type CoworkerLink, type CoworkerStatus } from '../services/coworkerClient'
 
 const tokenKey = 'workzen.coworker.token'
 const enabledKey = 'workzen.coworker.enabled'
+const modeKey = 'workzen.coworker.permissions'
 const recheckMs = 20000
 
 function readStored(key: string) {
@@ -22,9 +24,15 @@ function writeStored(key: string, value: string | null) {
   }
 }
 
+export type ConnectResult = 'connected' | 'offline' | 'denied' | 'busy' | 'blocked'
+
 export function useCoworker() {
   const [token, setToken] = useState<string | null>(() => readStored(tokenKey))
   const [enabled, setEnabledState] = useState(() => readStored(enabledKey) === 'on' && readStored(tokenKey) !== null)
+  const [mode, setModeState] = useState<PermissionMode>(() => {
+    const stored = readStored(modeKey)
+    return isPermissionMode(stored) ? stored : defaultPermissionMode
+  })
   const [link, setLink] = useState<CoworkerLink>('unknown')
   const [status, setStatus] = useState<CoworkerStatus | null>(null)
 
@@ -54,31 +62,34 @@ export function useCoworker() {
     writeStored(enabledKey, value ? 'on' : null)
   }, [])
 
-  const connect = useCallback(
-    async (code: string) => {
-      const candidate = code.trim()
-      const result = await checkCoworker(candidate)
-      setLink(result.link)
-      setStatus(result.status)
-      if (result.link === 'connected') {
-        setToken(candidate)
-        writeStored(tokenKey, candidate)
-        setEnabled(true)
-      }
-      return result.link
-    },
-    [setEnabled],
-  )
+  const setMode = useCallback((value: PermissionMode) => {
+    setModeState(value)
+    writeStored(modeKey, value)
+  }, [])
 
-  const disconnect = useCallback(() => {
+  const connect = useCallback(async (): Promise<ConnectResult> => {
+    const paired = await pairCoworker()
+    if (!paired.ok) return paired.reason
+    setToken(paired.token)
+    writeStored(tokenKey, paired.token)
+    const result = await checkCoworker(paired.token)
+    setLink(result.link)
+    setStatus(result.status)
+    if (result.link !== 'connected') return 'offline'
+    setEnabled(true)
+    return 'connected'
+  }, [setEnabled])
+
+  const disconnect = useCallback(async () => {
+    if (token) await unpairCoworker(token)
     setToken(null)
     writeStored(tokenKey, null)
     setEnabled(false)
     setStatus(null)
     setLink('unauthorized')
-  }, [setEnabled])
+  }, [token, setEnabled])
 
-  return { token, enabled, link, status, connected: link === 'connected', setEnabled, connect, disconnect, recheck }
+  return { token, enabled, mode, setMode, link, status, connected: link === 'connected', setEnabled, connect, disconnect, recheck }
 }
 
 export type CoworkerState = ReturnType<typeof useCoworker>

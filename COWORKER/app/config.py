@@ -1,11 +1,24 @@
+import sys
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def frozen_app() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def env_files() -> tuple[str, ...]:
+    if frozen_app():
+        bundled = Path(getattr(sys, "_MEIPASS", ".")) / ".env"
+        beside = Path(sys.executable).parent / ".env"
+        return (str(bundled), str(beside))
+    return (".env",)
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=env_files(), env_file_encoding="utf-8", extra="ignore")
 
     coworker_host: str = "127.0.0.1"
     coworker_port: int = 8765
@@ -15,6 +28,7 @@ class Settings(BaseSettings):
     coworker_browser_channel: str = "chrome"
     coworker_headless: bool = False
     coworker_launch_apps: bool = True
+    coworker_pairing_prompt: bool = True
 
     @property
     def workspace(self) -> Path:

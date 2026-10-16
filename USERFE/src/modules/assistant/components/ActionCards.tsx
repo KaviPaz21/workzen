@@ -1,4 +1,4 @@
-import { Ban, Check, FileText, FolderOpen, Globe, LoaderCircle, ShieldQuestion, X, type LucideIcon } from 'lucide-react'
+import { Ban, Check, FileText, FolderOpen, Globe, LoaderCircle, Lock, ShieldQuestion, X, type LucideIcon } from 'lucide-react'
 import type { ActionRecord, LiveAction } from '../types'
 
 function iconFor(tool: string): LucideIcon {
@@ -16,7 +16,7 @@ interface ActionCardsProps {
 
 export function ActionCards({ actions, onApprove, onDeny, onApproveAll }: ActionCardsProps) {
   if (actions.length === 0) return null
-  const waiting = actions.filter((action) => action.status === 'awaiting').length
+  const waiting = actions.filter((action) => action.status === 'awaiting' && action.risk !== 'high' && action.confirm === undefined).length
   return (
     <section className="actions" aria-label="Co-worker actions">
       <ol>
@@ -31,14 +31,18 @@ export function ActionCards({ actions, onApprove, onDeny, onApproveAll }: Action
                 <p className="action__summary">{action.summary}</p>
                 {action.status === 'awaiting' && (
                   <p className="action__note">
-                    <ShieldQuestion aria-hidden="true" />
-                    Co-worker is asking for your permission
+                    {action.confirm !== undefined || action.risk === 'high' ? <Lock aria-hidden="true" /> : <ShieldQuestion aria-hidden="true" />}
+                    {action.confirm !== undefined
+                      ? `“${action.confirm}” may create or submit something. Co-worker always asks before that.`
+                      : action.risk === 'high'
+                        ? 'This creates something, so Co-worker always asks first'
+                        : 'Co-worker is asking for your permission'}
                   </p>
                 )}
                 {action.status === 'running' && (
                   <p className="action__note">
                     <LoaderCircle className="spin" aria-hidden="true" />
-                    Working on your computer
+                    {action.auto ? 'Running by itself (your permission setting)' : 'Working on your computer'}
                   </p>
                 )}
                 {action.status === 'done' && (
@@ -76,7 +80,7 @@ export function ActionCards({ actions, onApprove, onDeny, onApproveAll }: Action
       </ol>
       {waiting > 0 && (
         <button type="button" className="actions__all" onClick={onApproveAll}>
-          Allow every action in this task
+          Allow all for this task (still asks before creating)
         </button>
       )}
     </section>

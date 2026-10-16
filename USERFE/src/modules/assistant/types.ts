@@ -48,12 +48,30 @@ export interface ModeStatus {
   detail: string
 }
 
+export interface SkillOption {
+  id: string
+  label: string
+  hint: string
+}
+
+export interface SkillInfo {
+  id: string
+  label: string
+  summary: string
+  detail: string
+  examples: string[]
+  options: SkillOption[]
+}
+
 export interface AssistantOptions {
   models: string[]
   default_model: string | null
   efforts: Effort[]
   default_effort: Effort
   modes: ModeStatus[]
+  coworker_download_url?: string | null
+  coworker_actions?: string[]
+  coworker_skills?: SkillInfo[]
 }
 
 export interface ChatRequest {
@@ -63,6 +81,7 @@ export interface ChatRequest {
   model: string
   effort: Effort
   coworker?: boolean
+  skill?: string | null
 }
 
 export interface ActionOutcome {
@@ -70,12 +89,16 @@ export interface ActionOutcome {
   result?: Record<string, unknown> | null
   error?: string | null
   denied?: boolean
+  needs_approval?: { label: string; effect: string }
 }
+
+export type ActionRisk = 'low' | 'medium' | 'high'
 
 export interface RequestedAction {
   id: string
   tool: string
   summary: string
+  risk: ActionRisk
   args: Record<string, unknown>
 }
 
@@ -84,6 +107,8 @@ export type LiveActionStatus = 'awaiting' | 'running' | 'done' | 'failed' | 'den
 export interface LiveAction extends RequestedAction {
   status: LiveActionStatus
   detail: string
+  auto?: boolean
+  confirm?: string
 }
 
 export type ChatEvent =

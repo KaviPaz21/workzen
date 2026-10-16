@@ -1,6 +1,7 @@
-import { Bot, SquarePen, Trash2 } from 'lucide-react'
+import { Bot, LayoutGrid, SquarePen, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { modeNote, type PermissionMode } from '../lib/permissions'
 import type { CoworkerLink } from '../services/coworkerClient'
 import type { SessionSummary } from '../types'
 
@@ -8,14 +9,17 @@ export interface CoworkerSwitchState {
   enabled: boolean
   link: CoworkerLink
   paired: boolean
+  mode: PermissionMode
+  outdated: boolean
 }
 
 function coworkerNote(state: CoworkerSwitchState) {
   if (!state.paired) return 'Not set up yet'
-  if (state.link === 'offline') return 'Helper is not running'
-  if (state.link === 'unauthorized') return 'Pairing code needs updating'
-  if (state.link === 'unknown') return 'Checking the helper…'
-  return state.enabled ? 'On. Asks before every action' : 'Off. Helper is connected'
+  if (state.link === 'offline') return 'App is not running'
+  if (state.link === 'unauthorized') return 'Needs reconnecting'
+  if (state.link === 'unknown') return 'Checking the app…'
+  if (state.outdated) return 'Needs updating'
+  return state.enabled ? `On. ${modeNote(state.mode)}` : 'Off. App is connected'
 }
 
 interface SessionsPanelProps {
@@ -30,6 +34,7 @@ interface SessionsPanelProps {
   coworker: CoworkerSwitchState
   onToggleCoworker: () => void
   onSetupCoworker: () => void
+  onOpenSkills: () => void
 }
 
 const groupOrder = ['Today', 'Yesterday', 'Previous 7 days', 'Older']
@@ -46,7 +51,7 @@ function groupOf(updatedAt: string) {
   return 'Older'
 }
 
-export function SessionsPanel({ open, sessions, loaded, activeId, busy, onNewChat, onOpen, onDelete, coworker, onToggleCoworker, onSetupCoworker }: SessionsPanelProps) {
+export function SessionsPanel({ open, sessions, loaded, activeId, busy, onNewChat, onOpen, onDelete, coworker, onToggleCoworker, onSetupCoworker, onOpenSkills }: SessionsPanelProps) {
   const [removing, setRemoving] = useState<SessionSummary | null>(null)
   const grouped = groupOrder
     .map((label) => ({ label, items: sessions.filter((session) => groupOf(session.updated_at) === label) }))
@@ -112,6 +117,12 @@ export function SessionsPanel({ open, sessions, loaded, activeId, busy, onNewCha
             </span>
             <span className="coworker__switch" aria-hidden="true" />
           </button>
+          {coworker.enabled && coworker.link === 'connected' && (
+            <button type="button" className="coworker__skills" tabIndex={open ? 0 : -1} onClick={onOpenSkills}>
+              <LayoutGrid aria-hidden="true" />
+              Skills and tasks
+            </button>
+          )}
           <button type="button" className="coworker__setup" tabIndex={open ? 0 : -1} onClick={onSetupCoworker}>
             {coworker.paired ? 'Co-worker settings' : 'Set up Co-worker'}
           </button>

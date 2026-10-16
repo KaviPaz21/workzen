@@ -57,6 +57,7 @@ class ChatRequest(BaseModel):
     model: str = Field(min_length=1, max_length=120)
     effort: Effort = DEFAULT_EFFORT
     coworker: bool = False
+    skill: Literal["testing", "drafting", "bi"] | None = None
 
 
 class ActionResult(BaseModel):
@@ -64,6 +65,21 @@ class ActionResult(BaseModel):
     result: dict | None = None
     error: str | None = None
     denied: bool = False
+
+
+class SkillOption(BaseModel):
+    id: str
+    label: str
+    hint: str = ""
+
+
+class SkillInfo(BaseModel):
+    id: str
+    label: str
+    summary: str
+    detail: str = ""
+    examples: list[str] = Field(default_factory=list)
+    options: list[SkillOption] = Field(default_factory=list)
 
 
 class ModeStatus(BaseModel):
@@ -79,3 +95,6 @@ class AssistantOptions(BaseModel):
     efforts: list[str]
     default_effort: Effort
     modes: list[ModeStatus]
+    coworker_download_url: str | None = None
+    coworker_actions: list[str] = Field(default_factory=list)
+    coworker_skills: list[SkillInfo] = Field(default_factory=list)

@@ -1,4 +1,4 @@
-import { ArrowDown, Bot, Menu, SquarePen, TriangleAlert, X } from 'lucide-react'
+import { ArrowDown, Bot, LayoutGrid, Menu, ShieldCheck, SquarePen, TriangleAlert, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { usePageTitle } from '@/lib/usePageTitle'
 import { useCurrentUser } from '@/modules/recruiteone/state/CurrentUser'
@@ -9,8 +9,10 @@ import { MessageList } from '../components/MessageList'
 import { ModeToggle } from '../components/ModeToggle'
 import { QuestionRail } from '../components/QuestionRail'
 import { SessionsPanel } from '../components/SessionsPanel'
+import { SkillsModal } from '../components/SkillsModal'
 import { canvasContentFor } from '../lib/canvas'
 import { firstNameOf, greetingFor } from '../lib/greeting'
+import { permissionOptions, type PermissionMode } from '../lib/permissions'
 import { useAssistant } from '../state/useAssistant'
 import { useCoworker } from '../state/useCoworker'
 
@@ -31,12 +33,13 @@ export function AssistantPage() {
   const { user } = useCurrentUser()
   const coworker = useCoworker()
   const coworkerOn = coworker.enabled && coworker.connected
-  const assistant = useAssistant(user.id, { token: coworker.token, active: coworkerOn })
+  const assistant = useAssistant(user.id, { token: coworker.token, active: coworkerOn, mode: coworker.mode, supported: coworker.status?.actions ?? null })
   const { options, messages, draft, streaming, preferences, activeId } = assistant
   const [panelOpen, setPanelOpen] = useState(loadPanel)
   const [canvas, setCanvas] = useState<CanvasState | null>(null)
   const [canvasWide, setCanvasWide] = useState(false)
   const [setupOpen, setSetupOpen] = useState(false)
+  const [skillsOpen, setSkillsOpen] = useState(false)
   const [awayFromBottom, setAwayFromBottom] = useState(false)
   const canvasTokens = useRef(0)
   const scrollerRef = useRef<HTMLDivElement>(null)
@@ -62,6 +65,9 @@ export function AssistantPage() {
   }
 
   const coworkerBlocked = coworker.enabled && !coworker.connected
+  const activeSkill = assistant.options?.coworker_skills?.find((item) => item.id === assistant.skill) ?? null
+  const installedActions = coworker.status?.actions ?? null
+  const coworkerOutdated = coworker.connected && installedActions !== null && (assistant.options?.coworker_actions ?? []).some((action) => !installedActions.includes(action))
 
   function openCode(fenceLanguage: string, code: string) {
     const content = canvasContentFor(fenceLanguage, code)
@@ -81,6 +87,15 @@ export function AssistantPage() {
     const scroller = scrollerRef.current
     if (scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < followDistance) scroller.scrollTop = scroller.scrollHeight
   }, [draft])
+
+  const liveActionCount = assistant.liveActions.length
+  const awaitingCount = assistant.liveActions.filter((action) => action.status === 'awaiting').length
+  useEffect(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    if (awaitingCount > 0) scroller.scrollTo({ top: scroller.scrollHeight, behavior: 'smooth' })
+    else if (scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < followDistance * 3) scroller.scrollTop = scroller.scrollHeight
+  }, [liveActionCount, awaitingCount])
 
   useEffect(() => {
     const scroller = scrollerRef.current
@@ -117,9 +132,10 @@ export function AssistantPage() {
         onNewChat={assistant.newChat}
         onOpen={assistant.openSession}
         onDelete={assistant.deleteSession}
-        coworker={{ enabled: coworker.enabled, link: coworker.link, paired: coworker.token !== null }}
+        coworker={{ enabled: coworker.enabled, link: coworker.link, paired: coworker.token !== null, mode: coworker.mode, outdated: coworkerOutdated }}
         onToggleCoworker={toggleCoworker}
         onSetupCoworker={() => setSetupOpen(true)}
+        onOpenSkills={() => (coworkerOutdated ? setSetupOpen(true) : setSkillsOpen(true))}
       />
 
       <section className="assistant__main">
@@ -129,10 +145,34 @@ export function AssistantPage() {
           </button>
           <ModeToggle value={preferences.mode} modes={options?.modes ?? []} disabled={coworkerOn} onChange={(mode) => assistant.updatePreferences({ mode })} />
           {coworkerOn && (
-            <span className="assistant__chip" title="Co-worker can act on this computer after you allow each step">
+            <span className="assistant__chip" title="Co-worker can act on this computer. It never deletes anything and always asks before creating something">
               <Bot aria-hidden="true" />
               Co-worker on
             </span>
+          )}
+          {coworkerOn && (
+            <label className="assistant__permission">
+              <ShieldCheck aria-hidden="true" />
+              <select
+                value={coworker.mode}
+                aria-label="Co-worker permissions"
+                title={permissionOptions.find((option) => option.id === coworker.mode)?.description}
+                onChange={(event) => coworker.setMode(event.target.value as PermissionMode)}
+              >
+                {permissionOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.short}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {coworkerOn && activeSkill && (
+            <button type="button" className="assistant__skill" title="Stop using this skill for the next messages" onClick={assistant.clearSkill}>
+              <LayoutGrid aria-hidden="true" />
+              {activeSkill.label}
+              <X aria-hidden="true" />
+            </button>
           )}
           <span className="assistant__title">{activeTitle ?? ''}</span>
           <button type="button" className="assistant__icon" aria-label="New chat" title="New chat" disabled={streaming || empty} onClick={assistant.newChat}>
@@ -140,10 +180,25 @@ export function AssistantPage() {
           </button>
         </header>
 
+        {coworkerOutdated && (
+          <p className="assistant__notice" role="status">
+            <TriangleAlert aria-hidden="true" />
+            The Co-worker app on this computer is out of date, so newer steps such as looking at a page, the pointer and checks will not work.
+            {options?.coworker_download_url && (
+              <a className="assistant__link" href={options.coworker_download_url} download>
+                Download the update
+              </a>
+            )}
+            <button type="button" className="assistant__link" onClick={() => setSetupOpen(true)}>
+              How to update
+            </button>
+          </p>
+        )}
+
         {coworkerBlocked && (
           <p className="assistant__notice" role="status">
             <TriangleAlert aria-hidden="true" />
-            Co-worker is on, but the helper on this computer is not responding. Start it, or turn Co-worker off.
+            Co-worker is on, but the Co-worker app on this computer is not responding. Open it from the Start menu, or turn Co-worker off.
             <button type="button" className="assistant__link" onClick={() => setSetupOpen(true)}>
               Open setup
             </button>
@@ -165,7 +220,7 @@ export function AssistantPage() {
                   <h1>
                     {greetingFor()}, {firstNameOf(user.name)}
                   </h1>
-                  <p>{coworkerOn ? 'Co-worker is on. Describe a task for this computer and allow each step.' : preferences.mode === 'kb' ? 'Ask a question and I will answer from your internal knowledge base.' : 'What can I help you with today?'}</p>
+                  <p>{coworkerOn ? 'Co-worker is on. Describe a task for this computer. It asks before anything important and never deletes.' : preferences.mode === 'kb' ? 'Ask a question and I will answer from your internal knowledge base.' : 'What can I help you with today?'}</p>
                   {assistant.optionsError && (
                     <p className="assistant__problem" role="alert">
                       <TriangleAlert aria-hidden="true" />
@@ -239,7 +294,18 @@ export function AssistantPage() {
         </div>
       </section>
 
-      {setupOpen && <CoworkerSetupModal coworker={coworker} onClose={() => setSetupOpen(false)} />}
+      {skillsOpen && (
+        <SkillsModal
+          skills={options?.coworker_skills ?? []}
+          activeSkill={assistant.skill}
+          onClose={() => setSkillsOpen(false)}
+          onStart={(skillId, message) => {
+            setSkillsOpen(false)
+            void assistant.send(message, skillId)
+          }}
+        />
+      )}
+      {setupOpen && <CoworkerSetupModal coworker={coworker} downloadUrl={options?.coworker_download_url ?? null} outdated={coworkerOutdated} onClose={() => setSetupOpen(false)} />}
     </div>
   )
 }

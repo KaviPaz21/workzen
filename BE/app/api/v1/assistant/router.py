@@ -1,10 +1,11 @@
 import json
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, status
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.api.deps import get_chat_service, get_user_id
+from app.core.config import Settings, get_settings
 from app.schemas.assistant.chat import ActionResult, AssistantOptions, ChatRequest, ChatSession, SessionSummary
 from app.services.assistant.chat_service import ChatService
 
@@ -55,3 +56,11 @@ async def submit_action_result(
     service: ChatService = Depends(get_chat_service),
 ):
     await service.submit_action_result(user_id, run_id, action_id, result)
+
+
+@router.get("/coworker/installer")
+async def download_coworker_installer(settings: Settings = Depends(get_settings)):
+    installer = settings.coworker_installer_file
+    if installer is None:
+        raise HTTPException(status_code=404, detail="The Co-worker app is not available for download yet")
+    return FileResponse(installer, filename="WorkZenCoworker.exe", media_type="application/vnd.microsoft.portable-executable")

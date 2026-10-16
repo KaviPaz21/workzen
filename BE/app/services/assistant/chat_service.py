@@ -10,11 +10,13 @@ from uuid import uuid4
 
 from langchain_core.messages import AIMessage, HumanMessage
 
+from app.agents.assistant.coworker_tools import TOOL_INDEX
+from app.agents.assistant.skills import SKILLS
 from app.agents.assistant.graph import text_of
 from app.core.errors import InvalidRequestError, NotFoundError
 from app.integrations.blob import BlobStorage
 from app.repositories.chat_session_repository import ChatSessionRepository
-from app.schemas.assistant.chat import DEFAULT_EFFORT, EFFORTS, ActionResult, AssistantOptions, ChatRequest, ModeStatus
+from app.schemas.assistant.chat import DEFAULT_EFFORT, EFFORTS, ActionResult, AssistantOptions, ChatRequest, ModeStatus, SkillInfo, SkillOption
 from app.services.assistant.coworker_service import CoworkerRuns
 from app.services.assistant.knowledge_service import KnowledgeIndex
 
@@ -50,6 +52,7 @@ class ChatService:
     knowledge_storage: BlobStorage | None
     models: list[str]
     coworker_graph: Any = None
+    coworker_download_url: str | None = None
     coworker_runs: CoworkerRuns = field(default_factory=CoworkerRuns)
 
     async def refresh_knowledge(self) -> None:
@@ -78,6 +81,9 @@ class ChatService:
             efforts=EFFORTS,
             default_effort=DEFAULT_EFFORT,
             modes=[general, knowledge],
+            coworker_download_url=self.coworker_download_url,
+            coworker_actions=sorted(TOOL_INDEX),
+            coworker_skills=[SkillInfo(id=skill.id, label=skill.label, summary=skill.summary, detail=skill.detail, examples=skill.examples, options=[SkillOption(**option) for option in skill.options]) for skill in SKILLS],
         )
 
     async def list_sessions(self, user_id: str) -> list[dict]:
@@ -128,8 +134,8 @@ class ChatService:
         run = self.coworker_runs.create(user_id)
         yield {"type": "start", "session": summarize(session), "user_message": user_message, "run_id": run.id}
 
-        state = {"messages": [*messages, HumanMessage(content=question)], "model": request.model, "effort": request.effort, "rounds": 0}
-        config = {"configurable": {"coworker": run}, "recursion_limit": 80}
+        state = {"messages": [*messages, HumanMessage(content=question)], "model": request.model, "effort": request.effort, "rounds": 0, "skill": request.skill}
+        config = {"configurable": {"coworker": run}, "recursion_limit": 200}
         answer = ""
 
         async def drive() -> None:

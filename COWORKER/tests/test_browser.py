@@ -53,7 +53,10 @@ def test_browser_can_open_read_type_click_and_close(client, auth, site):
     assert {"text": "About us", "href": site + "/about"} in page["links"]
     assert any(field["label"] == "Search products" for field in page["fields"])
 
-    typed = act(client, auth, "browser_type", {"target": "Search products", "text": "laptops", "submit": True})
+    held = act(client, auth, "browser_type", {"target": "Search products", "text": "laptops", "submit": True})
+    assert held["ok"] is False and held["needs_approval"]["effect"] == "create"
+
+    typed = act(client, auth, "browser_type", {"target": "Search products", "text": "laptops", "submit": True, "allow_create": True})
     assert typed["ok"], typed
     assert typed["result"]["url"].endswith("/results?q=laptops")
     assert "Found 3 laptops" in typed["result"]["text"]
